@@ -96,7 +96,8 @@ public:
   /*check if the monitor has recorded the current export targets;
     if it has then do the actual export. Otherwise send off our
     export targets message again*/
-  void print_dirfrags(CInode *in);
+  void print_subtree_loads(CInode *in);
+  void force_migrate(CDir *dir, map<string, string> migrations);
   void try_rebalance();
   void find_exports(CDir *dir, 
                     double amount, 

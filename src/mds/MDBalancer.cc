@@ -419,7 +419,7 @@ void MDBalancer::do_fragmenting()
 }
 
 // Added by MSEVILLA (10-19-2014)
-void MDBalancer::check_dirfrags(CInode *in) {
+void MDBalancer::print_subtree_loads(CInode *in) {
   if (in != NULL) {
     if (in->is_dir()) { 
       list<CDir*> dirfrags;
@@ -447,8 +447,66 @@ void MDBalancer::check_dirfrags(CInode *in) {
             for (CDir::map_t::iterator direntry_it = dir->begin();
                  direntry_it != dir->end();
                  ++direntry_it) 
-              check_dirfrags(direntry_it->second->get_linkage()->get_inode());
+              print_subtree_loads(direntry_it->second->get_linkage()->get_inode());
           }
+        }
+      }
+    }
+  }
+}
+
+// Added by MSEVILLA (10-24-2014)
+void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
+  string path;
+  dir->get_inode()->make_path_string_projected(path);
+  dout(0) << "determine if auth " << path << " needs to migrate" << dendl;
+
+  // we don't care about snapshot directories
+  if (path.find("~") == 0) 
+    return;
+
+  map<string,string>::iterator migrations_it;
+  if ((migrations_it = migrations.find(path)) != migrations.end()) {
+    // the conf file says to migrate the auth subtree
+    if (!dir->is_auth() || dir->is_freezing() || dir->is_frozen() ||
+        dir->inode->is_base() || dir->inode->is_stray()) return;
+
+    int target = atoi(migrations_it->second.c_str());
+    dout(5) << " force migrate auth " << dir << ", ship it MDS" << target << dendl;
+    mds->mdcache->migrator->export_dir_nicely(dir, target);
+  }
+  else {  
+    // drill down and see if the conf file tells use to move any of the lower subtrees
+    for (CDir::map_t::iterator direntry_it = dir->begin();
+         direntry_it != dir->end();
+         ++direntry_it) {
+      CInode *in = direntry_it->second->get_linkage()->get_inode();
+      dout(5) << "  checking direntry: " << *in << dendl;
+      if (!in) continue;
+      if (!in->is_dir()) continue;
+      
+      string dirpath;
+      in->make_path_string_projected(dirpath);
+      if ((migrations_it = migrations.find(dirpath)) != migrations.end()) {
+        list<CDir*> dirfrags;
+        in->get_dirfrags(dirfrags);
+        for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
+             dirfrags_it != dirfrags.end();
+             dirfrags_it++) {
+          CDir *subdir = *dirfrags_it;
+          dout(5) << "   checking dirfrag: " << *subdir << dendl;
+          
+          if (!subdir->is_auth() || subdir->is_freezing() || subdir->is_frozen() ||
+              subdir->inode->is_base() || subdir->inode->is_stray()) continue;
+
+          int target = atoi(migrations_it->second.c_str());
+          if (mds->whoami != target) {
+            dout(5) << "    sending dirfrag: " << *subdir << ", ship it to MDS" << target << dendl;
+            mds->mdcache->migrator->export_dir_nicely(subdir, target);
+          }
+          else 
+            dout(5) << "    not sending dirfrag (" << *subdir << ") to myself" << dendl;
+          force_migrate(subdir, migrations);
         }
       }
     }
@@ -467,270 +525,43 @@ void MDBalancer::prep_rebalance(int beat)
 	 ++i)
       my_targets[*i] = 0.0;
   } else if (g_conf->mds_force_migrate != "") {
-      // remove the balancer... for now!
-      string migrations_str = g_conf->mds_force_migrate.c_str();
-      string kvpair;
-      size_t colon, comma;
-      map<string, string> migrations;
-      
-      // parse out where to send directories
-      while ((comma = migrations_str.find(",")) != string::npos) {   
-        kvpair = migrations_str.substr(0, comma);
-        colon = migrations_str.find(":");
-        if (colon == string::npos) {
-          dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
-          return;
-        }
-        migrations.insert(pair<string, string>(kvpair.substr(0, colon), kvpair.substr(colon + 1)));
-        migrations_str = migrations_str.substr(comma + 1);
-      }
-      kvpair = migrations_str.substr(0, migrations_str.length());
+    // remove the balancer... for now!
+    string migrations_str = g_conf->mds_force_migrate.c_str();
+    string kvpair;
+    size_t colon, comma;
+    map<string, string> migrations;
+    
+    // parse out where to send directories
+    while ((comma = migrations_str.find(",")) != string::npos) {   
+      kvpair = migrations_str.substr(0, comma);
       colon = migrations_str.find(":");
       if (colon == string::npos) {
         dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
         return;
       }
       migrations.insert(pair<string, string>(kvpair.substr(0, colon), kvpair.substr(colon + 1)));
+      migrations_str = migrations_str.substr(comma + 1);
+    }
+    kvpair = migrations_str.substr(0, migrations_str.length());
+    colon = migrations_str.find(":");
+    if (colon == string::npos) {
+      dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
+      return;
+    }
+    migrations.insert(pair<string, string>(kvpair.substr(0, colon), kvpair.substr(colon + 1)));
 
-      // do I own any of the dirs?
-      set<CDir*> subtrees;
-      mds->mdcache->get_fullauth_subtrees(subtrees);
-      map<string,string>::iterator migrations_it;
-      for (set<CDir*>::iterator it = subtrees.begin();
-           it != subtrees.end();
-           ++it) {
-        CDir *dir = *it;
-        string path;
-        dir->get_inode()->make_path_string_projected(path);
-        dout(0) << "determine if auth " << path << " needs to migrate" << dendl;
-        if ((migrations_it = migrations.find(path)) != migrations.end()) {
-          // the conf file says to migrate the auth subtree
-          if (!dir->is_auth() || dir->is_freezing() || dir->is_frozen() ||
-              dir->inode->is_base() || dir->inode->is_stray()) continue;
-
-          int target = atoi(migrations_it->second.c_str());
-          dout(0) << " force migrate auth " << dir << ", ship it MDS" << target << dendl;
-          mds->mdcache->migrator->export_dir_nicely(dir, target);
-        }
-        else {  
-          // drill down and see if the conf file tells use to move any of the lower subtrees
-          for (CDir::map_t::iterator direntry_it = dir->begin();
-               direntry_it != dir->end();
-               ++direntry_it) {
-            CInode *in = direntry_it->second->get_linkage()->get_inode();
-            dout(0) << "  checking direntry: " << *in << dendl;
-            if (!in) continue;
-            if (!in->is_dir()) continue;
-            
-            string dirpath;
-            in->make_path_string_projected(dirpath);
-            if ((migrations_it = migrations.find(dirpath)) != migrations.end()) {
-              list<CDir*> dirfrags;
-              in->get_dirfrags(dirfrags);
-              for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
-                   dirfrags_it != dirfrags.end();
-                   dirfrags_it++) {
-                CDir *subdir = *dirfrags_it;
-                dout(0) << "   checking dirfrag: " << *subdir << dendl;
-                
-                if (!subdir->is_auth() || subdir->is_freezing() || subdir->is_frozen() ||
-                    subdir->inode->is_base() || subdir->inode->is_stray()) continue;
-
-                int target = atoi(migrations_it->second.c_str());
-                if (mds->whoami != target) {
-                  dout(0) << "    sending dirfrag: " << *subdir << ", ship it to MDS" << target << dendl;
-                  mds->mdcache->migrator->export_dir_nicely(subdir, target);
-                }
-                else 
-                  dout(0) << "    not sending dirfrag (" << *subdir << ") to myself" << dendl;
-              }
-            }
-          }
-        }
-      } 
+    // do I own any of the dirs?
+    set<CDir*> subtrees;
+    mds->mdcache->get_fullauth_subtrees(subtrees);
+    for (set<CDir*>::iterator it = subtrees.begin();
+         it != subtrees.end();
+         ++it)
+      force_migrate(*it, migrations);
   } else 
     dout(0) << "not doing any migrations. :)" << dendl;
   
   mds->mdcache->show_subtrees(0);
   try_rebalance();
-    
-
-//    int cluster_size = mds->get_mds_map()->get_num_in_mds();
-//    int whoami = mds->get_nodeid();
-//    rebalance_time = ceph_clock_now(g_ceph_context);
-//
-//    // reset
-//    my_targets.clear();
-//    imported.clear();
-//    exported.clear();
-//
-//    dout(5) << " prep_rebalance: cluster loads are" << dendl;
-//
-//    mds->mdcache->migrator->clear_export_queue();
-//
-//    // rescale!  turn my mds_load back into meta_load units
-//    double load_fac = 1.0;
-//    map<int, mds_load_t>::iterator m = mds_load.find(whoami);
-//    if ((m != mds_load.end()) && (m->second.mds_load() > 0)) {
-//      double metald = m->second.auth.meta_load(rebalance_time, mds->mdcache->decayrate);
-//      double mdsld = m->second.mds_load();
-//      load_fac = metald / mdsld;
-//      dout(7) << " load_fac is " << load_fac
-//	      << " <- " << m->second.auth << " " << metald
-//	      << " / " << mdsld
-//	      << dendl;
-//    }
-//
-//    double total_load = 0;
-//    multimap<double,int> load_map;
-//    mds->mdcache->show_subtrees(0);
-//    for (int i=0; i<cluster_size; i++) {
-//      map<int, mds_load_t>::value_type val(i, mds_load_t(ceph_clock_now(g_ceph_context)));
-//      std::pair < map<int, mds_load_t>::iterator, bool > r(mds_load.insert(val));
-//      mds_load_t &load(r.first->second);
-//
-//      double l = load.mds_load() * load_fac;
-//      mds_meta_load[i] = l;
-//
-//      // Added by MSEVILLA (10-17-2014)
-//      dout(0) << "  mds." << i
-//              << " " << load
-//              << " = " << load.mds_load()
-//              << " ~ " << l << dendl;
-//
-//      if (whoami == i) my_load = l;
-//      total_load += l;
-//
-//      load_map.insert(pair<double,int>( l, i ));
-//    }
-//
-//    // Added by MSEVILLA (10-19-2014)
-//    // Print out the subtrees that this MDS is in charge of
-//    set<CDir*> fullauthsubs;
-//    mds->mdcache->get_fullauth_subtrees(fullauthsubs);
-//   
-//    dout(0) << "METADATA LOADS: <POP_IRD=,POP_IWR=,POP_READDIR=,POP_FETCH,POP_STORE>" << dendl;
-//    for (set<CDir*>::iterator it = fullauthsubs.begin();
-//         it != fullauthsubs.end();
-//         ++it) {
-//      CDir *dir = *it;
-//      string path;
-//      dir->get_inode()->make_path_string_projected(path);
-//      print_dirfrags(dir->get_inode());
-//   }
-// 
-//    // target load
-//    target_load = total_load / (double)cluster_size;
-//    dout(5) << "prep_rebalance:  my load " << my_load
-//	    << "   target " << target_load
-//	    << "   total " << total_load
-//	    << dendl;
-//
-//    // under or over?
-//    if (my_load < target_load * (1.0 + g_conf->mds_bal_min_rebalance)) {
-//      dout(5) << "  i am underloaded or barely overloaded, doing nothing." << dendl;
-//      last_epoch_under = beat_epoch;
-//      show_imports();
-//      return;
-//    }
-//
-//    last_epoch_over = beat_epoch;
-//
-//    // am i over long enough?
-//    if (last_epoch_under && beat_epoch - last_epoch_under < 2) {
-//      dout(5) << "  i am overloaded, but only for " << (beat_epoch - last_epoch_under) << " epochs" << dendl;
-//      return;
-//    }
-//
-//    dout(5) << "  i am sufficiently overloaded" << dendl;
-//
-//
-//    // first separate exporters and importers
-//    multimap<double,int> importers;
-//    multimap<double,int> exporters;
-//    set<int>             importer_set;
-//    set<int>             exporter_set;
-//
-//    for (multimap<double,int>::iterator it = load_map.begin();
-//	 it != load_map.end();
-//	 ++it) {
-//      if (it->first < target_load) {
-//	dout(15) << "   mds." << it->second << " is importer" << dendl;
-//	importers.insert(pair<double,int>(it->first,it->second));
-//	importer_set.insert(it->second);
-//      } else {
-//	dout(15) << "   mds." << it->second << " is exporter" << dendl;
-//	exporters.insert(pair<double,int>(it->first,it->second));
-//	exporter_set.insert(it->second);
-//      }
-//    }
-//
-//
-//    // determine load transfer mapping
-//
-//    if (true) {
-//      // analyze import_map; do any matches i can
-//
-//      dout(15) << "  matching exporters to import sources" << dendl;
-//
-//      // big -> small exporters
-//      for (multimap<double,int>::reverse_iterator ex = exporters.rbegin();
-//	   ex != exporters.rend();
-//	   ++ex) {
-//	double maxex = get_maxex(ex->second);
-//	if (maxex <= .001) continue;
-//
-//	// check importers. for now, just in arbitrary order (no intelligent matching).
-//	for (map<int, float>::iterator im = mds_import_map[ex->second].begin();
-//	     im != mds_import_map[ex->second].end();
-//	     ++im) {
-//	  double maxim = get_maxim(im->first);
-//	  if (maxim <= .001) continue;
-//	  try_match(ex->second, maxex,
-//		    im->first, maxim);
-//	  if (maxex <= .001) break;
-//	}
-//      }
-//    }
-//
-//
-//    if (1) {
-//      if (beat % 2 == 1) {
-//	// old way
-//	dout(15) << "  matching big exporters to big importers" << dendl;
-//	// big exporters to big importers
-//	multimap<double,int>::reverse_iterator ex = exporters.rbegin();
-//	multimap<double,int>::iterator im = importers.begin();
-//	while (ex != exporters.rend() &&
-//	       im != importers.end()) {
-//	  double maxex = get_maxex(ex->second);
-//	  double maxim = get_maxim(im->second);
-//	  if (maxex < .001 || maxim < .001) break;
-//	  try_match(ex->second, maxex,
-//		    im->second, maxim);
-//	  if (maxex <= .001) ++ex;
-//	  if (maxim <= .001) ++im;
-//	}
-//      } else {
-//	// new way
-//	dout(15) << "  matching small exporters to big importers" << dendl;
-//	// small exporters to big importers
-//	multimap<double,int>::iterator ex = exporters.begin();
-//	multimap<double,int>::iterator im = importers.begin();
-//	while (ex != exporters.end() &&
-//	       im != importers.end()) {
-//	  double maxex = get_maxex(ex->second);
-//	  double maxim = get_maxim(im->second);
-//	  if (maxex < .001 || maxim < .001) break;
-//	  try_match(ex->second, maxex,
-//		    im->second, maxim);
-//	  if (maxex <= .001) ++ex;
-//	  if (maxim <= .001) ++im;
-//	}
-//      }
-//    }
-//  }
-//  try_rebalance();
 }
 
 

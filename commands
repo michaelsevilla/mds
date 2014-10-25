@@ -1,0 +1,5 @@
+sudo OSD=3 MDS=3 MON=1 ./vstart.sh -l -n; sudo ceph mds tell 0 injectargs '--debug-ms 0'; sudo ceph mds tell 1 injectargs '--debug-ms 0'; sudo ceph mds tell 2 injectargs '--debug-ms 0'
+
+(sudo ./ceph-fuse -c ceph.conf /mnt/cephfs -d) > /mnt/vol2/msevilla/ceph-logs/client/client0 2>&1 &
+
+sudo ceph -c ceph.conf mds tell 0 injectargs '--mds_force_migrate /dir0:2'
