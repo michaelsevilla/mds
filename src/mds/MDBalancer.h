@@ -59,6 +59,8 @@ class MDBalancer {
   map<int,double> my_targets;
   map<int,double> imported;
   map<int,double> exported;
+  map<string,double(*)[6]> pop_subtrees;
+  pair<string,double> min_pop_subtree;
 
   map<int32_t, int> old_prev_targets;  // # iterations they _haven't_ been targets
   bool check_targets();
@@ -96,7 +98,7 @@ public:
   /*check if the monitor has recorded the current export targets;
     if it has then do the actual export. Otherwise send off our
     export targets message again*/
-  void print_subtree_loads(CInode *in);
+  void subtree_loads(CInode *in);
   void force_migrate(CDir *dir, map<string, string> migrations);
   void try_rebalance();
   void find_exports(CDir *dir, 

@@ -419,7 +419,7 @@ void MDBalancer::do_fragmenting()
 }
 
 // Added by MSEVILLA (10-19-2014)
-void MDBalancer::print_subtree_loads(CInode *in) {
+void MDBalancer::subtree_loads(CInode *in) {
   if (in != NULL) {
     if (in->is_dir()) { 
       list<CDir*> dirfrags;
@@ -440,14 +440,23 @@ void MDBalancer::print_subtree_loads(CInode *in) {
           double istore = dir->pop_auth_subtree.get_meta_count(META_POP_STORE);
 
           total_metadata_load = ird + iwr + ireaddir + ifetch + istore;
+          if (total_metadata_load > min_pop_subtree.second) {
+            dout(0) << "Hi" << dendl;
+            if (pop_subtrees.size() >= g_conf->mds_print_nsubtrees) }
+              // delete that entry from the map, since we only want to keep n subtrees in the array (space)
+            } else {
+              double(*)[6] metaload_vec = {total_metadata_load, ird, iwr, ireaddir, ifetch, istore};
+              //pop_subtrees.insert(pair<string,double(*)[6]>(path, 
+            }
+          }
           if (total_metadata_load >= 1) {
-            dout(0) << "     |__ " << path << "TOTAL=" << total_metadata_load
-                    << " < " << ird << " " << iwr << " " << ireaddir
-                    << " " << ifetch << " " << istore << " > "  << dendl;
+            //dout(0) << "   |__ " << path << "TOTAL=" << total_metadata_load
+            //        << " < " << ird << " " << iwr << " " << ireaddir
+            //        << " " << ifetch << " " << istore << " > "  << dendl;
             for (CDir::map_t::iterator direntry_it = dir->begin();
                  direntry_it != dir->end();
                  ++direntry_it) 
-              print_subtree_loads(direntry_it->second->get_linkage()->get_inode());
+              subtree_loads(direntry_it->second->get_linkage()->get_inode());
           }
         }
       }
@@ -559,8 +568,19 @@ void MDBalancer::prep_rebalance(int beat)
       force_migrate(*it, migrations);
   } else 
     dout(0) << "not doing any migrations. :)" << dendl;
-  
+
+  // print important subtree information  
   mds->mdcache->show_subtrees(0);
+  set<CDir*> subtrees;
+  mds->mdcache->get_fullauth_subtrees(subtrees);
+  for (set<CDir*>::iterator it = subtrees.begin();
+       it != subtrees.end();
+       ++it) {
+    CDir *dir = *it;
+    pop_subtrees.clear();
+    min_pop_subtree = make_pair("", 0.0);
+    subtree_loads(dir->get_inode());
+  }
   try_rebalance();
 }
 
