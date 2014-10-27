@@ -914,14 +914,6 @@ public:
       4*vec[META_POP_STORE].get_last();
   }
   // Added by MSEVILLA
-  double get_meta_count(int val) {
-    if ((val != META_POP_IRD) or (val != META_POP_IWR) or
-        (val != META_POP_READDIR) or (val != META_POP_FETCH) or 
-        (val != META_POP_STORE)) {
-        return 0;
-    }
-    return vec[val].get_last();
-  }
   double get_meta_total() {
     return vec[META_POP_IRD].get_last() + vec[META_POP_IWR].get_last() 
       + vec[META_POP_READDIR].get_last() + vec[META_POP_FETCH].get_last() + vec[META_POP_STORE].get_last();

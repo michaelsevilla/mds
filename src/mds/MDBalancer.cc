@@ -95,6 +95,7 @@ void MDBalancer::tick()
       mds->is_active() &&
       now.sec() - last_heartbeat.sec() >= g_conf->mds_bal_interval) {
     last_heartbeat = now;
+    dout(0) << "mds" << mds->get_nodeid() << " sample=" << now.sec() << "... thu-THUMP" << dendl;
     send_heartbeat();
     num_bal_times--;
   }
@@ -417,7 +418,6 @@ void MDBalancer::do_fragmenting()
   }
 }
 
-// Added by MSEVILLA (10-19-2014)
 void MDBalancer::subtree_loads(CInode *in) {
   if (in != NULL) {
     if (in->is_dir()) { 
@@ -446,7 +446,36 @@ void MDBalancer::subtree_loads(CInode *in) {
   }
 }
 
-// Added by MSEVILLA (10-24-2014)
+void MDBalancer::dump_subtree_loads() {
+  // print important subtree information  
+  set<CDir*> subtrees;
+  mds->mdcache->get_fullauth_subtrees(subtrees);
+  for (set<CDir*>::iterator it = subtrees.begin();
+       it != subtrees.end();
+       ++it) {
+    CDir *dir = *it;
+    pop_subtrees.clear();
+    subtree_loads(dir->get_inode());
+    size_t count = 0;
+    for (map<string,dirfrag_load_vec_t>::iterator it = pop_subtrees.begin();
+         it != pop_subtrees.end();
+         ++it) {
+      pair<string,dirfrag_load_vec_t> p = *it;
+      dout(0) << "total=" << p.second.get_meta_total() 
+              << " < " << p.second.get(META_POP_IRD).get_last()
+              << " " << p.second.get(META_POP_IWR).get_last()
+              << " " << p.second.get(META_POP_READDIR).get_last()
+              << " " << p.second.get(META_POP_FETCH).get_last()
+              << " " << p.second.get(META_POP_STORE).get_last()
+              << " > path=" << p.first
+              << dendl;
+      count++;
+      if (count > (size_t) g_conf->mds_print_nsubtrees)
+        break;
+    }
+  }
+}
+
 void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
   string path;
   dir->get_inode()->make_path_string_projected(path);
@@ -463,7 +492,8 @@ void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
         dir->inode->is_base() || dir->inode->is_stray()) return;
 
     int target = atoi(migrations_it->second.c_str());
-    dout(5) << " force migrate auth " << dir << ", ship it MDS" << target << dendl;
+    dout(0) << " dump, sleep, and force migrate auth " << dir << ", ship it MDS" << target << dendl;
+    dump_subtree_loads();
     mds->mdcache->migrator->export_dir_nicely(dir, target);
   }
   else {  
@@ -492,7 +522,7 @@ void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
 
           int target = atoi(migrations_it->second.c_str());
           if (mds->whoami != target) {
-            dout(5) << "    sending dirfrag: " << *subdir << ", ship it to MDS" << target << dendl;
+            dout(0) << "    dump and force migrate dirfrag: " << *subdir << ", ship it to MDS" << target << dendl;
             mds->mdcache->migrator->export_dir_nicely(subdir, target);
           }
           else 
@@ -521,7 +551,7 @@ void MDBalancer::prep_rebalance(int beat)
     string kvpair;
     size_t colon, comma;
     map<string, string> migrations;
-    
+
     // parse out where to send directories
     while ((comma = migrations_str.find(",")) != string::npos) {   
       kvpair = migrations_str.substr(0, comma);
@@ -548,37 +578,9 @@ void MDBalancer::prep_rebalance(int beat)
          it != subtrees.end();
          ++it)
       force_migrate(*it, migrations);
-  } else 
-    dout(0) << "not doing any migrations. :)" << dendl;
-
-  // print important subtree information  
-  mds->mdcache->show_subtrees(0);
-  set<CDir*> subtrees;
-  mds->mdcache->get_fullauth_subtrees(subtrees);
-  for (set<CDir*>::iterator it = subtrees.begin();
-       it != subtrees.end();
-       ++it) {
-    CDir *dir = *it;
-    pop_subtrees.clear();
-    subtree_loads(dir->get_inode());
-    size_t count = 0;
-    for (map<string,dirfrag_load_vec_t>::iterator it = pop_subtrees.begin();
-         it != pop_subtrees.end();
-         ++it) {
-      pair<string,dirfrag_load_vec_t> p = *it;
-      dout(0) << "total=" << p.second.get_meta_total() 
-              << " < " << p.second.get_meta_count(META_POP_IRD) 
-              << " " << p.second.get_meta_count(META_POP_IWR) 
-              << " " << p.second.get_meta_count(META_POP_READDIR) 
-              << " " << p.second.get_meta_count(META_POP_FETCH) 
-              << " " << p.second.get_meta_count(META_POP_STORE) 
-              << " > path=" << p.first
-              << dendl;
-      count++;
-      if (count > (size_t) g_conf->mds_print_nsubtrees)
-        break;
-    }
   }
+
+  mds->mdcache->show_subtrees(0);
   try_rebalance();
 }
 

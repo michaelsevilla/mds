@@ -1,5 +1,11 @@
-sudo OSD=3 MDS=3 MON=1 ./vstart.sh -l -n; sudo ceph mds tell 0 injectargs '--debug-ms 0'; sudo ceph mds tell 1 injectargs '--debug-ms 0'; sudo ceph mds tell 2 injectargs '--debug-ms 0'
+sudo ../../cleanup.sh; sudo OSD=3 MDS=3 MON=1 ./vstart.sh -l -n; sudo ceph mds tell 0 injectargs '--debug-ms 0'; sudo ceph mds tell 1 injectargs '--debug-ms 0'; sudo ceph mds tell 2 injectargs '--debug-ms 0'
 
 (sudo ./ceph-fuse -c ceph.conf /mnt/cephfs -d) > /mnt/vol2/msevilla/ceph-logs/client/client0 2>&1 &
 
 sudo ceph -c ceph.conf mds tell 0 injectargs '--mds_force_migrate /dir0:2'
+sudo chown -R msevilla:msevilla /mnt/cephfs
+
+tailplot -s 3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,20,21,22,23,24,25,26,27,29,30,31 -f traverse_discover,traverse,dir_fetch,dir_commit,traverse_remote_ino,inodes_bottom,imported,imported_inodes,inodes_pin_tail,traverse_forward,inodes_top,traverse_dir_fetch,inodes_pinned,reply,traverse_hit,subtrees,caps,forward,exported,exported_inodes,dir_split,inodes_expired,traverse_lock,request,inodes_with_caps,q,inodes ceph/src/out/perf/mds-issdm-a.timing &
+
+/home/msevilla/programs/mdtest/mdtest -F -C -n 50000 -d /mnt/cephfs/dir0
+
