@@ -431,30 +431,15 @@ void MDBalancer::subtree_loads(CInode *in) {
         dir->get_inode()->make_path_string_projected(path);
         // we don't want to look at snap directories
         if (path.find("~") != 0){
-          if (pop_subtrees.size() >= (size_t) g_conf->mds_print_nsubtrees) {
-            double total_load = dir->pop_auth_subtree.get_meta_total();
-            min_pop_subtree = *(pop_subtrees.begin());
-            for (map<string,dirfrag_load_vec_t>::iterator it = pop_subtrees.begin();
-                 it != pop_subtrees.end();
-                 ++it) {
-              pair<string,dirfrag_load_vec_t> p = *it;
-              if (p.second.get_meta_total() < min_pop_subtree.second.get_meta_total()) {
-                min_pop_subtree = p;
-              }
-            }
-            if (total_load > min_pop_subtree.second.get_meta_total()) {
-              // delete that entry from the map, since we only want to keep n subtrees in the array (space)
-              dout(0) << " deleting " << min_pop_subtree.first << "(" << min_pop_subtree.second.get_meta_total() << ") inserting " << path << "(" << total_load << ")" << dendl;
-              pop_subtrees.erase(min_pop_subtree.first);
-              pop_subtrees.insert(make_pair(path, dir->pop_auth_subtree));
-            }
-          } else {
-            pop_subtrees.insert(pair<string,dirfrag_load_vec_t>(path, dir->pop_auth_subtree));
+          if (dir->pop_auth_subtree.get_meta_total() >= 0.5) {
+            if (pop_subtrees.find(path) != pop_subtrees.end())
+              pop_subtrees.erase(path);
+            pop_subtrees.insert(make_pair(path, dir->pop_auth_subtree));
+            for (CDir::map_t::iterator direntry_it = dir->begin();
+                 direntry_it != dir->end();
+                 ++direntry_it) 
+              subtree_loads(direntry_it->second->get_linkage()->get_inode());
           }
-          for (CDir::map_t::iterator direntry_it = dir->begin();
-               direntry_it != dir->end();
-               ++direntry_it) 
-            subtree_loads(direntry_it->second->get_linkage()->get_inode());
         }
       }
     }
@@ -576,6 +561,7 @@ void MDBalancer::prep_rebalance(int beat)
     CDir *dir = *it;
     pop_subtrees.clear();
     subtree_loads(dir->get_inode());
+    size_t count = 0;
     for (map<string,dirfrag_load_vec_t>::iterator it = pop_subtrees.begin();
          it != pop_subtrees.end();
          ++it) {
@@ -588,6 +574,9 @@ void MDBalancer::prep_rebalance(int beat)
               << " " << p.second.get_meta_count(META_POP_STORE) 
               << " > path=" << p.first
               << dendl;
+      count++;
+      if (count > (size_t) g_conf->mds_print_nsubtrees)
+        break;
     }
   }
   try_rebalance();
