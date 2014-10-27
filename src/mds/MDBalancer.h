@@ -59,8 +59,8 @@ class MDBalancer {
   map<int,double> my_targets;
   map<int,double> imported;
   map<int,double> exported;
-  map<string,double(*)[6]> pop_subtrees;
-  pair<string,double> min_pop_subtree;
+  map<string,dirfrag_load_vec_t> pop_subtrees;
+  pair<string,dirfrag_load_vec_t> min_pop_subtree;
 
   map<int32_t, int> old_prev_targets;  // # iterations they _haven't_ been targets
   bool check_targets();

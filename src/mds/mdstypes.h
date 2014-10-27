@@ -920,7 +920,11 @@ public:
         (val != META_POP_STORE)) {
         return 0;
     }
-    return vec[META_POP_FETCH].get_last();
+    return vec[val].get_last();
+  }
+  double get_meta_total() {
+    return vec[META_POP_IRD].get_last() + vec[META_POP_IWR].get_last() 
+      + vec[META_POP_READDIR].get_last() + vec[META_POP_FETCH].get_last() + vec[META_POP_STORE].get_last();
   }
   void add(utime_t now, DecayRate& rate, dirfrag_load_vec_t& r) {
     for (int i=0; i<dirfrag_load_vec_t::NUM; i++)

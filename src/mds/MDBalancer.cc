@@ -1,4 +1,3 @@
-// Blah
 // -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
 // vim: ts=8 sw=2 smarttab
 /*
@@ -430,34 +429,32 @@ void MDBalancer::subtree_loads(CInode *in) {
         CDir *dir = *dirfrags_it;
         string path;
         dir->get_inode()->make_path_string_projected(path);
-        // We don't want to look at snap directories
+        // we don't want to look at snap directories
         if (path.find("~") != 0){
-          double total_metadata_load = 0;
-          double ird = dir->pop_auth_subtree.get_meta_count(META_POP_IRD);
-          double iwr = dir->pop_auth_subtree.get_meta_count(META_POP_IWR);
-          double ireaddir = dir->pop_auth_subtree.get_meta_count(META_POP_READDIR);
-          double ifetch = dir->pop_auth_subtree.get_meta_count(META_POP_FETCH);
-          double istore = dir->pop_auth_subtree.get_meta_count(META_POP_STORE);
-
-          total_metadata_load = ird + iwr + ireaddir + ifetch + istore;
-          if (total_metadata_load > min_pop_subtree.second) {
-            dout(0) << "Hi" << dendl;
-            if (pop_subtrees.size() >= g_conf->mds_print_nsubtrees) }
-              // delete that entry from the map, since we only want to keep n subtrees in the array (space)
-            } else {
-              double(*)[6] metaload_vec = {total_metadata_load, ird, iwr, ireaddir, ifetch, istore};
-              //pop_subtrees.insert(pair<string,double(*)[6]>(path, 
+          if (pop_subtrees.size() >= (size_t) g_conf->mds_print_nsubtrees) {
+            double total_load = dir->pop_auth_subtree.get_meta_total();
+            min_pop_subtree = *(pop_subtrees.begin());
+            for (map<string,dirfrag_load_vec_t>::iterator it = pop_subtrees.begin();
+                 it != pop_subtrees.end();
+                 ++it) {
+              pair<string,dirfrag_load_vec_t> p = *it;
+              if (p.second.get_meta_total() < min_pop_subtree.second.get_meta_total()) {
+                min_pop_subtree = p;
+              }
             }
+            if (total_load > min_pop_subtree.second.get_meta_total()) {
+              // delete that entry from the map, since we only want to keep n subtrees in the array (space)
+              dout(0) << " deleting " << min_pop_subtree.first << "(" << min_pop_subtree.second.get_meta_total() << ") inserting " << path << "(" << total_load << ")" << dendl;
+              pop_subtrees.erase(min_pop_subtree.first);
+              pop_subtrees.insert(make_pair(path, dir->pop_auth_subtree));
+            }
+          } else {
+            pop_subtrees.insert(pair<string,dirfrag_load_vec_t>(path, dir->pop_auth_subtree));
           }
-          if (total_metadata_load >= 1) {
-            //dout(0) << "   |__ " << path << "TOTAL=" << total_metadata_load
-            //        << " < " << ird << " " << iwr << " " << ireaddir
-            //        << " " << ifetch << " " << istore << " > "  << dendl;
-            for (CDir::map_t::iterator direntry_it = dir->begin();
-                 direntry_it != dir->end();
-                 ++direntry_it) 
-              subtree_loads(direntry_it->second->get_linkage()->get_inode());
-          }
+          for (CDir::map_t::iterator direntry_it = dir->begin();
+               direntry_it != dir->end();
+               ++direntry_it) 
+            subtree_loads(direntry_it->second->get_linkage()->get_inode());
         }
       }
     }
@@ -578,8 +575,20 @@ void MDBalancer::prep_rebalance(int beat)
        ++it) {
     CDir *dir = *it;
     pop_subtrees.clear();
-    min_pop_subtree = make_pair("", 0.0);
     subtree_loads(dir->get_inode());
+    for (map<string,dirfrag_load_vec_t>::iterator it = pop_subtrees.begin();
+         it != pop_subtrees.end();
+         ++it) {
+      pair<string,dirfrag_load_vec_t> p = *it;
+      dout(0) << "total=" << p.second.get_meta_total() 
+              << " < " << p.second.get_meta_count(META_POP_IRD) 
+              << " " << p.second.get_meta_count(META_POP_IWR) 
+              << " " << p.second.get_meta_count(META_POP_READDIR) 
+              << " " << p.second.get_meta_count(META_POP_FETCH) 
+              << " " << p.second.get_meta_count(META_POP_STORE) 
+              << " > path=" << p.first
+              << dendl;
+    }
   }
   try_rebalance();
 }
