@@ -492,8 +492,7 @@ void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
         dir->inode->is_base() || dir->inode->is_stray()) return;
 
     int target = atoi(migrations_it->second.c_str());
-    dout(0) << " dump, sleep, and force migrate auth " << dir << ", ship it MDS" << target << dendl;
-    dump_subtree_loads();
+    dout(0) << " force migrate auth " << dir << ", ship it MDS" << target << dendl;
     mds->mdcache->migrator->export_dir_nicely(dir, target);
   }
   else {  
@@ -522,7 +521,7 @@ void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
 
           int target = atoi(migrations_it->second.c_str());
           if (mds->whoami != target) {
-            dout(0) << "    dump and force migrate dirfrag: " << *subdir << ", ship it to MDS" << target << dendl;
+            dout(0) << "    force migrate dirfrag: " << *subdir << ", ship it to MDS" << target << dendl;
             mds->mdcache->migrator->export_dir_nicely(subdir, target);
           }
           else 
@@ -536,6 +535,8 @@ void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
 
 void MDBalancer::prep_rebalance(int beat)
 {
+  mds->mdcache->show_subtrees(0);
+  dump_subtree_loads();
   if (g_conf->mds_thrash_exports) {
     //we're going to randomly export to all the mds in the cluster
     my_targets.clear();
@@ -580,7 +581,6 @@ void MDBalancer::prep_rebalance(int beat)
       force_migrate(*it, migrations);
   }
 
-  mds->mdcache->show_subtrees(0);
   try_rebalance();
 }
 
