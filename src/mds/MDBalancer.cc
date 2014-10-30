@@ -469,9 +469,8 @@ void MDBalancer::dump_subtree_loads() {
               << " " << p.second.get(META_POP_STORE).get_last()
               << " > path=" << p.first
               << dendl;
+      if (count > (size_t) g_conf->mds_print_nsubtrees) break;
       count++;
-      if (count > (size_t) g_conf->mds_print_nsubtrees)
-        break;
     }
   }
 }
@@ -479,7 +478,7 @@ void MDBalancer::dump_subtree_loads() {
 void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
   string path;
   dir->get_inode()->make_path_string_projected(path);
-  dout(0) << "determine if auth " << path << " needs to migrate" << dendl;
+  dout(5) << "determine if auth " << path << " needs to migrate" << dendl;
 
   // we don't care about snapshot directories
   if (path.find("~") == 0) 
@@ -492,8 +491,10 @@ void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
         dir->inode->is_base() || dir->inode->is_stray()) return;
 
     int target = atoi(migrations_it->second.c_str());
-    dout(0) << " force migrate auth " << dir << ", ship it MDS" << target << dendl;
+    dout(5) << " force migrate auth " << *dir << ", ship it MDS" << target << dendl;
+    mds->mdcache->show_subtrees(0);
     mds->mdcache->migrator->export_dir_nicely(dir, target);
+    mds->mdcache->show_subtrees(0);
   }
   else {  
     // drill down and see if the conf file tells use to move any of the lower subtrees
@@ -521,8 +522,10 @@ void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
 
           int target = atoi(migrations_it->second.c_str());
           if (mds->whoami != target) {
-            dout(0) << "    force migrate dirfrag: " << *subdir << ", ship it to MDS" << target << dendl;
+            dout(5) << "    force migrate dirfrag: " << *subdir << ", ship it to MDS" << target << dendl;
+            mds->mdcache->show_subtrees(0);
             mds->mdcache->migrator->export_dir_nicely(subdir, target);
+            mds->mdcache->show_subtrees(0);
           }
           else 
             dout(5) << "    not sending dirfrag (" << *subdir << ") to myself" << dendl;
@@ -535,7 +538,6 @@ void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
 
 void MDBalancer::prep_rebalance(int beat)
 {
-  mds->mdcache->show_subtrees(0);
   dump_subtree_loads();
   if (g_conf->mds_thrash_exports) {
     //we're going to randomly export to all the mds in the cluster
