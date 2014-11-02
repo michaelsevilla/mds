@@ -475,6 +475,188 @@ void MDBalancer::dump_subtree_loads() {
   }
 }
 
+/* Goal: pass important parameters to Lua so that Lua can make the load balancing decisions
+ *  @parm0      char**      debug log
+ *  @parm1      int         who I am
+ *  @parm2-n    float       meta_load(auth), meta_load(all), req_rate, queue_length, cpu_load_avg
+ *  @return     how much load to send to each MDS
+ *
+ * Parameters (@parm) are passed with the table data structure; values are pushed onto the stack 
+ * and "globalized", so that Lua can access them. Return values (@return) are pushed back onto 
+ * the stack, so that C++ can access them.
+ *
+ * The "script" variable has the heuristic, encoded as a Lua script. Eventually, we'd like to 
+ * be able to inject this as an argument (injectargs) into the MDS daemon while the process is
+ * running, but for now, we just transfer control off to another Lua file.
+ */
+void MDBalancer::custom_balancer()
+{
+  const char *log_file = g_conf->log_file.c_str();
+  const char *function = "balance";
+  int cluster_size = mds->get_mds_map()->get_num_in_mds();
+  set<CDir*> subtrees;
+  string conf_policies = g_conf->mds_lua_balancer.c_str();
+  map<string, string> policies;
+  size_t comma, colon;
+  string key, value, kvpair;
+
+  dout(0) << "MSEVILLA: balancing policies = " << policies << dendl;
+
+  // Parse the out the policies
+  while((comma = conf_policies.find(",")) != string::npos) {
+    kvpair = conf_policies.substr(0, comma);
+    colon = conf_policies.find(":");
+    if (colon == string::npos) {
+      dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
+      return;
+    }
+    policies.insert(pair<string, string>(kvpair.substr(0, colon), kvpair.substr(colon + 1)));
+    conf_policies = conf_policies.substr(comma + 1);
+  }
+  kvpair = conf_policies.substr(0, conf_policies.length());
+  colon = conf_policies.find(":");
+  if (colon == string::npos) {
+   dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
+   return;
+  }
+  policies.insert(pair<string, string>(kvpair.substr(0, colon), kvpair.substr(colon + 1)));
+
+  // iterate over my subtrees and see if any of them are in the conf
+  map<string,string>::iterator policy_it;
+  mds->mdcache->get_fullauth_subtrees(subtrees);
+  for (set<CDir*>::iterator it = subtrees.begin();
+       it != subtrees.end();
+       ++it) {
+    CDir *dir = *it;
+    string path;
+    dir->get_inode()->make_path_string_projected(path); 
+    dout(0) << "\t determine if any subtrees for auth "<< path << " have a custom balancer" << dendl;  
+    if ((policy_it = policies.find(path)) != policies.end()) {
+      if (dir->get_balancer() != policy_it->second)
+        dir->set_balancer(policy_it->second);
+    }
+    for (CDir::map_t::iterator i = dir->begin(); 
+         i != dir->end();
+         ++i) {
+      CInode *in = i->second->get_linkage()->get_inode(); 
+      if (!in) continue;
+      if (!in->is_dir()) continue;
+
+      string dirpath;
+      in->make_path_string_projected(dirpath);
+      if ((policy_it = policies.find(dirpath)) != policies.end()) {
+        list<CDir*> dir_frags;
+
+        dout(0) << "\t\t " << policy_it->first << " has a custom balancer (" << dirpath << "), ship it to MDS " << cluster_size - 1 << dendl;
+        in->get_dirfrags(dir_frags);
+        for (list<CDir*>::iterator p = dir_frags.begin();
+             p != dir_frags.end();
+             p++) {
+          CDir *subdir = *p;
+          if (!subdir->is_auth()) continue;
+          if (subdir->is_frozen()) continue;
+          if (mds->whoami != cluster_size - 1) {
+            dout(0) << "\t\t\t sending dirfrag: " << *subdir << dendl;
+            mds->mdcache->migrator->export_dir_nicely(subdir, cluster_size - 1);
+          }
+          else {
+            dout(0) << "\t\t\t not exporting dirfrag: " << *(subdir->get_inode()) << dendl;
+          }
+        } 
+      }
+    }
+  }
+  mds->mdcache->show_subtrees(0);
+
+  // Commence Lua stuff
+  lua_State *L = luaL_newstate();
+  luaL_openlibs(L);
+  lua_newtable(L);
+
+  // attack the subtree with biggest load - this give us the best opportunity to move as much as possible
+  set<CDir*> fullauthsubs;
+  mds->mdcache->get_fullauth_subtrees(fullauthsubs);
+  CDir *max = NULL;
+  double max_load = -1;
+  for (set<CDir*>::iterator it = fullauthsubs.begin();
+       it != fullauthsubs.end();
+       ++it) {
+    CDir *dir = *it;
+    string dirpath;
+    double load = 0;
+    dir->get_inode()->make_path_string_projected(dirpath);
+
+    if (dirpath.find("~") != string::npos) continue;
+    load = dir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+    if (load > max_load) {
+      max_load = load;
+      max = dir;
+    }
+  }
+  if (max_load == -1) 
+    dout(0) << "\t there was a problem and I couldn't find the max load" << dendl;
+  else
+    dout(0) << "\t max load = " << max_load << " for inode: " << *max << dendl;
+  dout(0) << "\t using balancer = " << max->get_balancer() << dendl;
+  
+  if (luaL_loadfile(L, max->get_balancer().c_str()) == 0) {
+    if (lua_pcall(L, 0, LUA_MULTRET, 0) == 0) {
+      lua_getglobal(L, function);
+      if (lua_type(L, lua_gettop(L)) != LUA_TNIL) {
+        lua_pushstring(L, log_file);
+        lua_pushnumber(L, mds->get_nodeid());
+        // rope off the last MDS
+        for (int i = 0; i<cluster_size-1; i++) {
+          map<int, mds_load_t>::value_type val(i, mds_load_t(ceph_clock_now(g_ceph_context)));
+          std::pair < map<int, mds_load_t>:: iterator, bool > r(mds_load.insert(val));
+          mds_load_t &load(r.first->second);
+          lua_pushnumber(L, load.auth.meta_load());
+          lua_pushnumber(L, load.all.meta_load());
+          lua_pushnumber(L, load.req_rate);
+          lua_pushnumber(L, load.queue_len);
+          lua_pushnumber(L, load.cpu_load_avg);
+        }
+        dout(0) << "[C++] executing " << function << "() in " << max->get_balancer() << dendl;
+        if (lua_pcall(L, (cluster_size - 1) * 5 + 2, 1, 0) == 0) {
+          // Lua returns a string of loads to send other MDSs
+          const char *ret = lua_tostring(L, -1);
+          string ret0(ret);
+          int i = 0;
+          size_t comma;
+          lua_pop(L, 1);
+          dout(0) << "[C++] received: " << ret0 << dendl;
+          while((comma = ret0.find(",")) != string::npos) {
+            my_targets[i] = atof(ret0.substr(0, comma).c_str());
+            ret0 = ret0.substr(comma + 1);
+            i++; 
+          }
+          my_targets[i] = atof(ret0.substr(0, ret0.length()).c_str());
+          for (map<int, double>::iterator i = my_targets.begin();
+              i != my_targets.end();
+              i++)
+            dout(0) << "[C++] \t " << i->first << " = " << i->second << dendl;
+        }
+      }
+      else {
+        dout(0) << "[C++] ERROR! couldn't find function named " << function << ": \n\t" << lua_tostring(L, -1) << dendl;
+        lua_settop(L, 0);
+        return;
+      }
+    }
+    else {
+      dout(0) << "[C++] pcall ERROR: " << lua_tostring(L, -1) << dendl;
+      lua_settop(L, 0);
+      return;
+    }
+  }
+  else {
+    dout(0) << "[C++] ERROR! couldn't load file:  \n\t" << lua_tostring(L, -1) << dendl;
+    lua_settop(L, 0);
+    return;
+  }
+}
+
+
 void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
   string path;
   dir->get_inode()->make_path_string_projected(path);
@@ -536,19 +718,8 @@ void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
   }
 }
 
-void MDBalancer::prep_rebalance(int beat)
-{
-  dump_subtree_loads();
-  if (g_conf->mds_thrash_exports) {
-    //we're going to randomly export to all the mds in the cluster
-    my_targets.clear();
-    set<int> up_mds;
-    mds->get_mds_map()->get_up_mds_set(up_mds);
-    for (set<int>::iterator i = up_mds.begin();
-	 i != up_mds.end();
-	 ++i)
-      my_targets[*i] = 0.0;
-  } else if (g_conf->mds_force_migrate != "") {
+
+void MDBalancer::custom_migration(CDir *dir, map<string, string> migrations) {
     // remove the balancer... for now!
     string migrations_str = g_conf->mds_force_migrate.c_str();
     string kvpair;
@@ -581,8 +752,26 @@ void MDBalancer::prep_rebalance(int beat)
          it != subtrees.end();
          ++it)
       force_migrate(*it, migrations);
-  }
+}
 
+
+void MDBalancer::prep_rebalance(int beat)
+{
+  dump_subtree_loads();
+  if (g_conf->mds_thrash_exports) {
+    //we're going to randomly export to all the mds in the cluster
+    my_targets.clear();
+    set<int> up_mds;
+    mds->get_mds_map()->get_up_mds_set(up_mds);
+    for (set<int>::iterator i = up_mds.begin();
+	 i != up_mds.end();
+	 ++i)
+      my_targets[*i] = 0.0;
+  } else if (g_conf->mds_lua_balancer != "") {
+    custom_balancer();
+  } else if (g_conf->mds_force_migrate != "") {
+    custom_migration();
+  }
   try_rebalance();
 }
 

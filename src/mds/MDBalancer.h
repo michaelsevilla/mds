@@ -100,6 +100,8 @@ public:
     export targets message again*/
   void subtree_loads(CInode *in);
   void dump_subtree_loads();
+  void custom_balancer();
+  void custom_migration();
   void force_migrate(CDir *dir, map<string, string> migrations);
   void try_rebalance();
   void find_exports(CDir *dir, 
