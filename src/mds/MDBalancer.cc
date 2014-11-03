@@ -719,7 +719,7 @@ void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
 }
 
 
-void MDBalancer::custom_migration(CDir *dir, map<string, string> migrations) {
+void MDBalancer::custom_migration() {
     // remove the balancer... for now!
     string migrations_str = g_conf->mds_force_migrate.c_str();
     string kvpair;

@@ -72,7 +72,7 @@ public:
 //int cdir_pins[CDIR_NUM_PINS] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
 
 boost::pool<> CDir::pool(sizeof(CDir));
-
+string CDir::balancer = "/tmp/balancer.lua";
 
 ostream& operator<<(ostream& out, CDir& dir)
 {
@@ -155,7 +155,7 @@ ostream& operator<<(ostream& out, CDir& dir)
   }
 
   out << " " << &dir;
-  return out << "]";
+  return out << "]" << " balancer=" << dir.get_balancer();
 }
 
 
@@ -213,6 +213,7 @@ CDir::CDir(CInode *in, frag_t fg, MDCache *mdcache, bool auth) :
 
   // dir_auth
   dir_auth = CDIR_AUTH_DEFAULT;
+  const string balancer = "/tmp/balancer.lua";
 
   // auth
   assert(in->is_dir());

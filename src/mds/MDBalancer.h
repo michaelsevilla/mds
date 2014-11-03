@@ -33,6 +33,12 @@ class MHeartbeat;
 class CInode;
 class CDir;
 
+extern "C" {
+  #include "lua.h"
+  #include "lualib.h"
+  #include "lauxlib.h"
+}
+
 class MDBalancer {
  protected:
   MDS *mds;
