@@ -4348,8 +4348,8 @@ int Client::_lookup(Inode *dir, const string& dname, Inode **target)
 	     << dendl;
 
     if (!dn->inode || dn->inode->is_any_caps()) {
-      // is dn lease valid?
       utime_t now = ceph_clock_now(cct);
+      // is dn lease valid?
       if (dn->lease_mds >= 0 &&
 	  dn->lease_ttl > now &&
 	  mds_sessions.count(dn->lease_mds)) {
@@ -4376,8 +4376,14 @@ int Client::_lookup(Inode *dir, const string& dname, Inode **target)
     // can we conclude ENOENT locally?
     if (dir->caps_issued_mask(CEPH_CAP_FILE_SHARED) &&
 	(dir->flags & I_COMPLETE)) {
-      ldout(cct, 10) << "_lookup concluded ENOENT locally for " << *dir << " dn '" << dname << "'" << dendl;
+      ldout(cct, 0) << "_lookup concluded ENOENT locally for " << *dir << " dn '" << dname << "'" << dendl;
       return -ENOENT;
+    }
+    else {
+      ldout(cct, 0) << "_lookup can't be done locally dir=" << *dir 
+                    << " cuz caps_issued_mask(CEPH_CAP_FILE_SHARED)=" << dir->caps_issued_mask(CEPH_CAP_FILE_SHARED) 
+                    << " and cuz I_COMPLETE=" << (dir->flags & I_COMPLETE) 
+                    << " dn '" << dname << "'" << dendl;
     }
   }
 

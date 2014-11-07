@@ -1,6 +1,9 @@
 # start 1 MON, 5 OSDs, 3 MDSs
 sudo ../../cleanup.sh; sudo OSD=3 MDS=3 MON=1 ./vstart.sh -l -n; sudo ceph mds tell 0 injectargs '--debug-ms 0'; sudo ceph mds tell 1 injectargs '--debug-ms 0'; sudo ceph mds tell 2 injectargs '--debug-ms 0'
 
+# check configurations
+for i in 15 41 5; do ssh issdm-$i "sudo ceph --admin-daemon /var/run/ceph/ceph*asok config show | grep client | grep cache_size"; done
+
 # mount /mnt/cephfs on 3 clients
 mkdir /mnt/vol2/msevilla/ceph-logs/client
 (sudo ceph-fuse /mnt/cephfs -d) > /mnt/vol2/msevilla/ceph-logs/client/client0 2>&1 &

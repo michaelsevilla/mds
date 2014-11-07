@@ -36,6 +36,7 @@ using std::map;
 using std::vector;
 
 #include "common/config.h"
+#include "common/MemoryModel.h"
 
 #define dout_subsys ceph_subsys_mds
 #undef DOUT_COND
@@ -165,6 +166,9 @@ mds_load_t MDBalancer::get_load(utime_t now)
   ifstream cpu("/proc/loadavg");
   if (cpu.is_open())
     cpu >> load.cpu_load_avg;
+
+  static MemoryModel::snap last;
+  load.mem_load = last.get_total();
 
   dout(15) << "get_load " << load << dendl;
   return load;
@@ -478,7 +482,7 @@ void MDBalancer::dump_subtree_loads() {
 /* Goal: pass important parameters to Lua so that Lua can make the load balancing decisions
  *  @parm0      char**      debug log
  *  @parm1      int         who I am
- *  @parm2-n    float       meta_load(auth), meta_load(all), req_rate, queue_length, cpu_load_avg
+ *  @parm2-n    float       meta_load(auth), meta_load(all), req_rate, queue_length, cpu_load_avg, mem_load
  *  @return     how much load to send to each MDS
  *
  * Parameters (@parm) are passed with the table data structure; values are pushed onto the stack 
@@ -500,9 +504,7 @@ void MDBalancer::custom_balancer()
   size_t comma, colon;
   string key, value, kvpair;
 
-  dout(0) << "MSEVILLA: balancing policies = " << policies << dendl;
-
-  // Parse the out the policies
+  // parse out the policies
   while((comma = conf_policies.find(",")) != string::npos) {
     kvpair = conf_policies.substr(0, comma);
     colon = conf_policies.find(":");
@@ -516,8 +518,8 @@ void MDBalancer::custom_balancer()
   kvpair = conf_policies.substr(0, conf_policies.length());
   colon = conf_policies.find(":");
   if (colon == string::npos) {
-   dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
-   return;
+    dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
+    return;
   }
   policies.insert(pair<string, string>(kvpair.substr(0, colon), kvpair.substr(colon + 1)));
 
@@ -530,7 +532,7 @@ void MDBalancer::custom_balancer()
     CDir *dir = *it;
     string path;
     dir->get_inode()->make_path_string_projected(path); 
-    dout(0) << "\t determine if any subtrees for auth "<< path << " have a custom balancer" << dendl;  
+    dout(0) << "  determine if any subtrees for auth "<< path << " have a custom balancer" << dendl;  
     if ((policy_it = policies.find(path)) != policies.end()) {
       if (dir->get_balancer() != policy_it->second)
         dir->set_balancer(policy_it->second);
@@ -547,7 +549,7 @@ void MDBalancer::custom_balancer()
       if ((policy_it = policies.find(dirpath)) != policies.end()) {
         list<CDir*> dir_frags;
 
-        dout(0) << "\t\t " << policy_it->first << " has a custom balancer (" << dirpath << "), ship it to MDS " << cluster_size - 1 << dendl;
+        dout(0) << "    " << policy_it->first << " has a custom balancer (" << dirpath << "), ship it to MDS " << cluster_size - 1 << dendl;
         in->get_dirfrags(dir_frags);
         for (list<CDir*>::iterator p = dir_frags.begin();
              p != dir_frags.end();
@@ -555,20 +557,14 @@ void MDBalancer::custom_balancer()
           CDir *subdir = *p;
           if (!subdir->is_auth()) continue;
           if (subdir->is_frozen()) continue;
-          if (mds->whoami != cluster_size - 1) {
-            dout(0) << "\t\t\t sending dirfrag: " << *subdir << dendl;
+          if (mds->whoami != cluster_size - 1)
             mds->mdcache->migrator->export_dir_nicely(subdir, cluster_size - 1);
-          }
-          else {
-            dout(0) << "\t\t\t not exporting dirfrag: " << *(subdir->get_inode()) << dendl;
-          }
         } 
       }
     }
   }
   mds->mdcache->show_subtrees(0);
 
-  // Commence Lua stuff
   lua_State *L = luaL_newstate();
   luaL_openlibs(L);
   lua_newtable(L);
@@ -594,10 +590,10 @@ void MDBalancer::custom_balancer()
     }
   }
   if (max_load == -1) 
-    dout(0) << "\t there was a problem and I couldn't find the max load" << dendl;
+    dout(0) << "  there was a problem and I couldn't find the max load" << dendl;
   else
-    dout(0) << "\t max load = " << max_load << " for inode: " << *max << dendl;
-  dout(0) << "\t using balancer = " << max->get_balancer() << dendl;
+    dout(0) << "  max load = " << max_load << " for inode: " << *max << dendl;
+  dout(0) << "  using balancer = " << max->get_balancer() << dendl;
   
   if (luaL_loadfile(L, max->get_balancer().c_str()) == 0) {
     if (lua_pcall(L, 0, LUA_MULTRET, 0) == 0) {
@@ -615,6 +611,7 @@ void MDBalancer::custom_balancer()
           lua_pushnumber(L, load.req_rate);
           lua_pushnumber(L, load.queue_len);
           lua_pushnumber(L, load.cpu_load_avg);
+          lua_pushnumber(L, load.mem_load);
         }
         dout(0) << "[C++] executing " << function << "() in " << max->get_balancer() << dendl;
         if (lua_pcall(L, (cluster_size - 1) * 5 + 2, 1, 0) == 0) {
