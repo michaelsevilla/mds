@@ -12,6 +12,10 @@ module(..., package.seeall)
 -- Parse the arguments passed from C++ Ceph code. These tuples need
 -- to be standarized in the "balancer API".
 function parse_args(...)
+  if #{...} % #ARGS ~= 0 then
+    io.write(string.format("\t[Lua] Didn't receive all load metrics for all MDSs"))
+    return -1
+  end
   mdss = {}
   i = 0
   nmds = 0
@@ -28,7 +32,6 @@ function parse_args(...)
     mdss[i]["send"] = {}
     for j=1,#mdss do mdss[i]["send"][j] = 0 end
   end
-  -- Need to exit with fail if not modded correctly
   return mdss
 end
 
