@@ -1,38 +1,35 @@
 FUDGE = 0.001
+ARGS = {"auth_metaload", "all_metaload", "req_rate", "queue_len", "cpu_load_avg", "mem_load"}
 
+-- Modules that help expose the balancer APIs
 module(..., package.seeall)
 
+-- name:   parse_args
+-- input:  6-tuples for each MDS
+--         (metadata load on authority, metadata on all other subtrees, 
+--          request rate, queue length, CPU load, memory load)
+-- return: array mapping MDSs to load maps
+-- Parse the arguments passed from C++ Ceph code. These tuples need
+-- to be standarized in the "balancer API".
 function parse_args(...)
   mdss = {}
-  i = 1
-  nmds = 1
+  i = 0
+  nmds = 0
   for k,v in ipairs{...} do 
-    if i == 1 then 
-      mdss[nmds] = {}
-      mdss[nmds]["auth_metaload"] = v
-    elseif i == 2 then mdss[nmds]["all_metaload"] = v
-    elseif i == 3 then mdss[nmds]["req_rate"] = v
-    elseif i == 4 then mdss[nmds]["queue_len"] = v
-    elseif i == 5 then mdss[nmds]["cpu_load_avg"] = v
-    end
-    if i == 5 then
-      i = 1
+    if i % #ARGS == 0 then 
       nmds = nmds + 1
-    else
-      i = i + 1
+      mdss[nmds] = {}
     end
+    mdss[nmds][ARGS[(i % #ARGS) + 1]] = v
+    i = i + 1
   end
-  io.write(string.format("\t[Lua] I found %d MDSs... parameters = (auth_metaload, all_metaload, req_rate, queue_len, cpu_load_avg)\n", nmds-1))
-  for i=1,nmds-1 do
-    io.write(string.format("\t[Lua] MDS %d = (%f, %f, %f, %f, %f)\n", i - 1, 
-      mdss[i]["auth_metaload"], mdss[i]["all_metaload"], mdss[i]["req_rate"], 
-      mdss[i]["queue_len"], mdss[i]["cpu_load_avg"]))
-      mdss[i]["send"] = {}
-    for j=1,nmds-1 do
-      mdss[i]["send"][j] = 0
-    end
+
+  for i=1,#mdss do
+    mdss[i]["send"] = {}
+    for j=1,#mdss do mdss[i]["send"][j] = 0 end
   end
-  return mdss, nmds
+  -- Need to exit with fail if not modded correctly
+  return mdss
 end
 
 function print_importers_exporters(relative_loads)
