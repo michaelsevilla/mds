@@ -1,16 +1,20 @@
 FUDGE = 0.001
 
+-- load: used to determine which MDSs are under/overloaded
+function calculate_load(mdss, who)
+  return mdss[who]["all_metaload"] * mdss[who]["cpu_load_avg"]
+end
+
 function balance (debug, whoami, ...)
   f = io.open(debug, "a")
   io.output(f)
   mdss = parse_args(...)
   me = tonumber(whoami)
 
-  -- load: used to determine which MDSs are under/overloaded
   loads = {}
   total = 0
   for i=1,#mdss do
-    l = mdss[i]["all_metaload"] * mdss[i]["cpu_load_avg"]
+    l = calculate_load(mdss, i)
     total = total + l
     table.insert(loads, l)
   end
