@@ -1,42 +1,58 @@
+require "modules.parser"
+require "modules.helper"
+module(..., package.seeall)
+
 FUDGE = 0.001
 
--- load: used to determine which MDSs are under/overloaded
+-- Balancer callbacks
+-- - this balancer will evenly split load across MDSs
+-- - these balancing decisions are stateless (i.e., no knowledge about 
+--   previous function calls is needed for the current decision)
+--   - this incurrs extra calculations, but we'll live with that since
+--     the number of MDSs is relatively small
+
+-- how load should be calculated
+-- input:  @mdss: load maps for each MDS
+-- return: scaled load metric
+-- Used to determine which MDSs are under/overloaded. This should
+-- collapse many metrics into one with some sort of weighted sum
+-- that reflects what is important. 
 function calculate_load(mdss, who)
   return mdss[who]["all_metaload"] * mdss[who]["cpu_load_avg"]
 end
 
-function balance (debug, whoami, ...)
-  f = io.open(debug, "a")
-  io.output(f)
-  mdss = parse_args(...)
-  me = tonumber(whoami)
-
-  loads = {}
+-- when to migrate
+-- input:  @mdss: load maps for each MDS
+--         @me: the MDS doing this calculation
+-- return: 1 if we need to migrate load, 0 otherwise
+-- Use a condition or threshold to determine when to migrate load. 
+function when(mdss, me)
   total = 0
-  for i=1,#mdss do
-    l = calculate_load(mdss, i)
-    total = total + l
-    table.insert(loads, l)
+  for i=1,#loads do total = total + loads[i] end
+  io.write(string.format("\t[Lua] \ttarget load = %f\n", total / #mdss))
+  if (loads[me + 1] <= FUDGE + target) then return 1
+  else return 0
   end
-  target = total / #mdss
-  io.write(string.format("\t[Lua] \ttarget load = %f\n", target))
+end
 
-  -- when to migrate
-  if (loads[me + 1] <= FUDGE + target) then
-    io.write("\t[Lua] I am not overloaded...\n")
-    io.close(f)
-    return "0, 0, 0"
-  end
-
-  -- where to migrate
-  relative_loads = {}
+-- where to migrate
+-- input:  @mdss: load maps for each MDS
+-- return: array of importers/exporters
+function where(mdss)
   for i=1,#mdss do
-    table.insert(relative_loads, target - loads[i])
+    mdss[i]["load"] = total / #mdss - mds[i]["load"]
   end
-  io.write(string.format("\t[Lua] Loop to match exporters/importers: \"+\" means MDS has capacity, \"-\" means MDS wants to get rid of load\n"))
+  io.write(string.format("\t[Lua] Loop to match exporters/importers: 
+                          \"+\" means MDS has capacity, 
+                          \"-\" means MDS wants to get rid of load\n"))
   print_importers_exporters(relative_loads)
+  return relative_loads
+end
 
-  -- how much to migrate
+-- when to migrate
+-- input:  @mdss: load maps for each MDS
+-- Fill in the MDS "send" fields in the load dictionaries. 
+function howmuch(mdss)
   while keep_balancing(relative_loads) == 1 do
     whoim, whoex = max_importer_exporter(relative_loads)
     importer_capacity = relative_loads[whoim]
@@ -53,13 +69,23 @@ function balance (debug, whoami, ...)
     relative_loads[whoim] = relative_loads[whoim] - amount
     print_importers_exporters(relative_loads)
   end
-  ret = ""
-  for i=1,#mdss[1]["send"] do
-      ret = ret..mdss[me + 1]["send"][i]
-    if i ~= #mdss[me + 1]["send"] then
-      ret = ret..", "
-    end
-  end 
+end
+
+function balance (debug, whoami, ...)
+  f = io.open(debug, "a")
+  io.output(f)
+  mdss = parse_args(...)
+
+  mds_loads(mdss)
+  if ~when(mdss, tonumber(whoami)) then
+    io.write("\t[Lua] I am not overloaded...\n")
+    io.close(f)
+    return migrate_none(mdss)
+  end
+  --where(mdss)
+  --howmuch(mdss)
+
+  ret = migrate_string(mdss, tonumber(whoami))
   io.write(string.format("\t[Lua] Return: %s\n", ret)) 
   io.close(f)
   return ret

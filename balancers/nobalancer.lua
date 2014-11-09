@@ -1,10 +1,10 @@
-require "modules.parser"
+require "modules.helpers"
 module(..., package.seeall)
 function balance (debug, whoami, ...)
   f = io.open(debug, "a")
   io.output(f)
 
-  mdss = modules.parser.parse_args(...)
+  mdss = modules.helpers.parse_args(...)
   if mdss == -1 then
     io.write("\t[Lua] Failed to parse the loads\n")
     io.close(f)
