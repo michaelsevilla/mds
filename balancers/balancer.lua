@@ -49,7 +49,7 @@ function where(mdss)
   return relative_loads
 end
 
--- when to migrate
+-- how much to migrate
 -- input:  @mdss: load maps for each MDS
 -- Fill in the MDS "send" fields in the load dictionaries. 
 function howmuch(mdss)
