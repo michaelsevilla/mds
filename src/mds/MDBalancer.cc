@@ -495,164 +495,93 @@ void MDBalancer::dump_subtree_loads() {
  */
 void MDBalancer::custom_balancer()
 {
-  const char *log_file = g_conf->log_file.c_str();
-  const char *function = "balance";
-  int cluster_size = mds->get_mds_map()->get_num_in_mds();
-  set<CDir*> subtrees;
-  string conf_policies = g_conf->mds_lua_balancer.c_str();
-  map<string, string> policies;
-  size_t comma, colon;
-  string key, value, kvpair;
-
-  // parse out the policies
-  while((comma = conf_policies.find(",")) != string::npos) {
-    kvpair = conf_policies.substr(0, comma);
-    colon = conf_policies.find(":");
-    if (colon == string::npos) {
-      dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
-      return;
-    }
-    policies.insert(pair<string, string>(kvpair.substr(0, colon), kvpair.substr(colon + 1)));
-    conf_policies = conf_policies.substr(comma + 1);
-  }
-  kvpair = conf_policies.substr(0, conf_policies.length());
-  colon = conf_policies.find(":");
-  if (colon == string::npos) {
-    dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
-    return;
-  }
-  policies.insert(pair<string, string>(kvpair.substr(0, colon), kvpair.substr(colon + 1)));
-
-  // iterate over my subtrees and see if any of them are in the conf
-  map<string,string>::iterator policy_it;
-  mds->mdcache->get_fullauth_subtrees(subtrees);
-  for (set<CDir*>::iterator it = subtrees.begin();
-       it != subtrees.end();
-       ++it) {
-    CDir *dir = *it;
-    string path;
-    dir->get_inode()->make_path_string_projected(path); 
-    dout(0) << "  determine if any subtrees for auth "<< path << " have a custom balancer" << dendl;  
-    if ((policy_it = policies.find(path)) != policies.end()) {
-      if (dir->get_balancer() != policy_it->second)
-        dir->set_balancer(policy_it->second);
-    }
-    for (CDir::map_t::iterator i = dir->begin(); 
-         i != dir->end();
-         ++i) {
-      CInode *in = i->second->get_linkage()->get_inode(); 
-      if (!in) continue;
-      if (!in->is_dir()) continue;
-
-      string dirpath;
-      in->make_path_string_projected(dirpath);
-      if ((policy_it = policies.find(dirpath)) != policies.end()) {
-        list<CDir*> dir_frags;
-
-        dout(0) << "    " << policy_it->first << " has a custom balancer (" << dirpath << "), ship it to MDS " << cluster_size - 1 << dendl;
-        in->get_dirfrags(dir_frags);
-        for (list<CDir*>::iterator p = dir_frags.begin();
-             p != dir_frags.end();
-             p++) {
-          CDir *subdir = *p;
-          if (!subdir->is_auth()) continue;
-          if (subdir->is_frozen()) continue;
-          if (mds->whoami != cluster_size - 1)
-            mds->mdcache->migrator->export_dir_nicely(subdir, cluster_size - 1);
-        } 
-      }
-    }
-  }
-  mds->mdcache->show_subtrees(0);
-
-  lua_State *L = luaL_newstate();
-  luaL_openlibs(L);
-  lua_newtable(L);
-
-  // attack the subtree with biggest load - this give us the best opportunity to move as much as possible
-  set<CDir*> fullauthsubs;
-  mds->mdcache->get_fullauth_subtrees(fullauthsubs);
-  CDir *max = NULL;
-  double max_load = -1;
-  for (set<CDir*>::iterator it = fullauthsubs.begin();
-       it != fullauthsubs.end();
-       ++it) {
-    CDir *dir = *it;
-    string dirpath;
-    double load = 0;
-    dir->get_inode()->make_path_string_projected(dirpath);
-
-    if (dirpath.find("~") != string::npos) continue;
-    load = dir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
-    if (load > max_load) {
-      max_load = load;
-      max = dir;
-    }
-  }
-  if (max_load == -1) 
-    dout(0) << "  there was a problem and I couldn't find the max load" << dendl;
-  else
-    dout(0) << "  max load = " << max_load << " for inode: " << *max << dendl;
-  dout(0) << "  using balancer = " << max->get_balancer() << dendl;
-  
-  if (luaL_loadfile(L, max->get_balancer().c_str()) == 0) {
-    if (lua_pcall(L, 0, LUA_MULTRET, 0) == 0) {
-      lua_getglobal(L, function);
-      if (lua_type(L, lua_gettop(L)) != LUA_TNIL) {
-        lua_pushstring(L, log_file);
-        lua_pushnumber(L, mds->get_nodeid());
-        // rope off the last MDS
-        for (int i = 0; i<cluster_size-1; i++) {
-          map<int, mds_load_t>::value_type val(i, mds_load_t(ceph_clock_now(g_ceph_context)));
-          std::pair < map<int, mds_load_t>:: iterator, bool > r(mds_load.insert(val));
-          mds_load_t &load(r.first->second);
-          lua_pushnumber(L, load.auth.meta_load());
-          lua_pushnumber(L, load.all.meta_load());
-          lua_pushnumber(L, load.req_rate);
-          lua_pushnumber(L, load.queue_len);
-          lua_pushnumber(L, load.cpu_load_avg);
-          lua_pushnumber(L, load.mem_load);
-        }
-        dout(0) << "[C++] executing " << function << "() in " << max->get_balancer() << dendl;
-        if (lua_pcall(L, (cluster_size - 1) * 5 + 2, 1, 0) == 0) {
-          // Lua returns a string of loads to send other MDSs
-          const char *ret = lua_tostring(L, -1);
-          string ret0(ret);
-          int i = 0;
-          size_t comma;
-          lua_pop(L, 1);
-          dout(0) << "[C++] received: " << ret0 << dendl;
-          while((comma = ret0.find(",")) != string::npos) {
-            my_targets[i] = atof(ret0.substr(0, comma).c_str());
-            ret0 = ret0.substr(comma + 1);
-            i++; 
-          }
-          my_targets[i] = atof(ret0.substr(0, ret0.length()).c_str());
-          for (map<int, double>::iterator i = my_targets.begin();
-              i != my_targets.end();
-              i++)
-            dout(0) << "[C++] \t " << i->first << " = " << i->second << dendl;
-        }
-      }
-      else {
-        dout(0) << "[C++] ERROR! couldn't find function named " << function << ": \n\t" << lua_tostring(L, -1) << dendl;
-        lua_settop(L, 0);
-        return;
-      }
-    }
-    else {
-      dout(0) << "[C++] pcall ERROR: " << lua_tostring(L, -1) << dendl;
-      lua_settop(L, 0);
-      return;
-    }
-  }
-  else {
-    dout(0) << "[C++] ERROR! couldn't load file:  \n\t" << lua_tostring(L, -1) << dendl;
-    lua_settop(L, 0);
-    return;
-  }
+  return;
+//  dout(0) << "transferring control to Lua" << dendl;
+//
+//  const char *log_file = g_conf->log_file.c_str();
+//
+//  /* when to migrate
+//   * input:  @mdss: load maps for each MDS
+//   * return: 1 if we need to migrate load, 0 otherwise
+//   */
+//  const char *when =
+//    "mdss = modules.parser.
+//    "total = 0 for i=1,#loads do total = total + loads[i] end\n"
+//    "if (loads[me + 1] <= 0.001 + target) then return 1 else return 0 end\n"
+//  const char *when = 
+//    "
+//
+//  int cluster_size = mds->get_mds_map()->get_num_in_mds();
+//
+//  lua_State *L = luaL_newstate();
+//  luaL_openlibs(L);
+//  lua_newtable(L);
+//
+//  // Pass the debug file to the Lua balancer
+//  lua_pushnumber(L, 1);
+//  lua_pushstring(L, log_file);
+//  lua_settable(L, -3);
+//
+//  // Pass per-MDS quintuplets to Lua balancer
+//  for (int i = 0; i <cluster_size; i++) {
+//    map<int, mds_load_t>::value_type val(i, mds_load_t(ceph_clock_now(g_ceph_context)));
+//    std::pair < map<int, mds_load_t>:: iterator, bool > r(mds_load.insert(val));
+//    mds_load_t &load(r.first->second);
+//
+//    dout(0) << "mds " << i << " has load <cpu, reqr, qlen> " 
+//            << load.cpu_load_avg 
+//            << load.req_rate
+//            << load.queue_len
+//            << dendl; 
+//
+//    dout(0) << "pushing load.auth.meta_load to index: " << 5*i + 2 << dendl;
+//    lua_pushnumber(L, 5*i + 2);                 // index
+//    lua_pushnumber(L, load.auth.meta_load());   // value
+//    lua_settable(L, -3);                        // pop 2; t[index] = val
+//
+//    dout(0) << "pushing load.all.meta_load to index: " << 5*i + 3 << dendl;
+//    lua_pushnumber(L, 5*i + 3);             
+//    lua_pushnumber(L, load.all.meta_load());                   
+//    lua_settable(L, -3);                    
+//
+//    dout(0) << "pushing load.req_rate to index: " << 5*i + 4 << dendl;
+//    lua_pushnumber(L, 5*i + 4);
+//    lua_pushnumber(L, load.req_rate);
+//    lua_settable(L, -3);
+//
+//    dout(0) << "pushing load.queue_len to index: " << 5*i + 5 << dendl;
+//    lua_pushnumber(L, 5*i + 5);
+//    lua_pushnumber(L, load.queue_len);
+//    lua_settable(L, -3);
+//    
+//    dout(0) << "pushing load.cpu_load_avg to index: " << 5*i + 6<< dendl;
+//    lua_pushnumber(L, 5*i + 6);
+//    lua_pushnumber(L, load.cpu_load_avg);
+//    lua_settable(L, -3);
+//  }
+//
+//  dout(0) << "pushing nil to index: " << 5*cluster_size + 2<< dendl;
+//  lua_pushnumber(L, 5*cluster_size + 2);
+//  lua_pushnil(L);
+//  lua_settable(L, -3);
+//
+//  lua_setglobal(L, "arg");
+//  dout(0) << "[C++] executing script" << dendl;
+//
+//  if (luaL_dostring(L, script) > 0)
+//      lua_error(L);
+//
+//  // Get return value of Lua balancer
+//  dout(0) << "[C++] done executing, received: " << dendl;
+//  dout(0) << "[C++]   " << lua_tostring(L, lua_gettop(L)) << dendl;
+//  lua_pop(L, 1);
+//  dout(0) << "[C++]   " << lua_tostring(L, lua_gettop(L)) << dendl;
+//  lua_pop(L, 1);
+//  dout(0) << "[C++]   " << lua_tostring(L, lua_gettop(L)) << dendl;
+//  lua_pop(L, 1);
+//
+//  lua_close(L);
 }
-
 
 void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
   string path;
