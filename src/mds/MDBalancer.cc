@@ -195,18 +195,18 @@ void MDBalancer::send_heartbeat()
 
   // my load
   mds_load_t load = get_load(now);
-  map<int, mds_load_t>::value_type val(mds->get_nodeid(), load);
+  map<mds_rank_t, mds_load_t>::value_type val(mds->get_nodeid(), load);
   mds_load.insert(val);
 
   // import_map -- how much do i import from whom
-  map<int, float> import_map;
+  map<mds_rank_t, float> import_map;
   set<CDir*> authsubs;
   mds->mdcache->get_auth_subtrees(authsubs);
   for (set<CDir*>::iterator it = authsubs.begin();
        it != authsubs.end();
        ++it) {
     CDir *im = *it;
-    int from = im->inode->authority().first;
+    mds_rank_t from = im->inode->authority().first;
     if (from == mds->get_nodeid()) continue;
     if (im->get_inode()->is_stray()) continue;
     import_map[from] += im->pop_auth_subtree.meta_load(now, mds->mdcache->decayrate);
@@ -215,16 +215,16 @@ void MDBalancer::send_heartbeat()
 
 
   dout(5) << "mds." << mds->get_nodeid() << " epoch " << beat_epoch << " load " << load << dendl;
-  for (map<int, float>::iterator it = import_map.begin();
+  for (map<mds_rank_t, float>::iterator it = import_map.begin();
        it != import_map.end();
        ++it) {
     dout(5) << "  import_map from " << it->first << " -> " << it->second << dendl;
   }
 
 
-  set<int> up;
+  set<mds_rank_t> up;
   mds->get_mds_map()->get_mds_set(up);
-  for (set<int>::iterator p = up.begin(); p != up.end(); ++p) {
+  for (set<mds_rank_t>::iterator p = up.begin(); p != up.end(); ++p) {
     if (*p == mds->get_nodeid())
       continue;
     MHeartbeat *hb = new MHeartbeat(load, beat_epoch);
@@ -237,9 +237,9 @@ void MDBalancer::send_heartbeat()
 /* This function DOES put the passed message before returning */
 void MDBalancer::handle_heartbeat(MHeartbeat *m)
 {
-  typedef map<int, mds_load_t> mds_load_map_t;
+  typedef map<mds_rank_t, mds_load_t> mds_load_map_t;
 
-  int who = m->get_source().num();
+  mds_rank_t who = mds_rank_t(m->get_source().num());
   dout(25) << "=== got heartbeat " << m->get_beat() << " from " << m->get_source().num() << " " << m->get_load() << dendl;
 
   if (!mds->is_active())
@@ -314,8 +314,8 @@ void MDBalancer::export_empties()
 
 
 
-double MDBalancer::try_match(int ex, double& maxex,
-                             int im, double& maxim)
+double MDBalancer::try_match(mds_rank_t ex, double& maxex,
+                             mds_rank_t im, double& maxim)
 {
   if (maxex <= 0 || maxim <= 0) return 0.0;
 
@@ -583,7 +583,7 @@ void MDBalancer::custom_balancer()
 //  lua_close(L);
 }
 
-void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
+void MDBalancer::force_migrate(CDir *dir, map<string, mds_rank_t> migrations) {
   string path;
   dir->get_inode()->make_path_string_projected(path);
   dout(5) << "determine if auth " << path << " needs to migrate" << dendl;
@@ -592,13 +592,13 @@ void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
   if (path.find("~") == 0) 
     return;
 
-  map<string,string>::iterator migrations_it;
+  map<string,mds_rank_t>::iterator migrations_it;
   if ((migrations_it = migrations.find(path)) != migrations.end()) {
     // the conf file says to migrate the auth subtree
     if (!dir->is_auth() || dir->is_freezing() || dir->is_frozen() ||
         dir->inode->is_base() || dir->inode->is_stray()) return;
 
-    int target = atoi(migrations_it->second.c_str());
+    mds_rank_t target = migrations_it->second;
     dout(5) << " force migrate auth " << *dir << ", ship it MDS" << target << dendl;
     mds->mdcache->show_subtrees(0);
     mds->mdcache->migrator->export_dir_nicely(dir, target);
@@ -628,7 +628,7 @@ void MDBalancer::force_migrate(CDir *dir, map<string, string> migrations) {
           if (!subdir->is_auth() || subdir->is_freezing() || subdir->is_frozen() ||
               subdir->inode->is_base() || subdir->inode->is_stray()) continue;
 
-          int target = atoi(migrations_it->second.c_str());
+          mds_rank_t target = migrations_it->second;
           if (mds->whoami != target) {
             dout(5) << "    force migrate dirfrag: " << *subdir << ", ship it to MDS" << target << dendl;
             mds->mdcache->show_subtrees(0);
@@ -650,7 +650,7 @@ void MDBalancer::custom_migration() {
     string migrations_str = g_conf->mds_force_migrate.c_str();
     string kvpair;
     size_t colon, comma;
-    map<string, string> migrations;
+    map<string, mds_rank_t> migrations;
 
     // parse out where to send directories
     while ((comma = migrations_str.find(",")) != string::npos) {   
@@ -660,7 +660,7 @@ void MDBalancer::custom_migration() {
         dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
         return;
       }
-      migrations.insert(pair<string, string>(kvpair.substr(0, colon), kvpair.substr(colon + 1)));
+      migrations.insert(pair<string, mds_rank_t>(kvpair.substr(0, colon), mds_rank_t(atoi(kvpair.substr(colon + 1).c_str()))));
       migrations_str = migrations_str.substr(comma + 1);
     }
     kvpair = migrations_str.substr(0, migrations_str.length());
@@ -669,7 +669,7 @@ void MDBalancer::custom_migration() {
       dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
       return;
     }
-    migrations.insert(pair<string, string>(kvpair.substr(0, colon), kvpair.substr(colon + 1)));
+    migrations.insert(pair<string, mds_rank_t>(kvpair.substr(0, colon), mds_rank_t(atoi(kvpair.substr(colon + 1).c_str()))));
 
     // do I own any of the dirs?
     set<CDir*> subtrees;
@@ -687,9 +687,9 @@ void MDBalancer::prep_rebalance(int beat)
   if (g_conf->mds_thrash_exports) {
     //we're going to randomly export to all the mds in the cluster
     my_targets.clear();
-    set<int> up_mds;
+    set<mds_rank_t> up_mds;
     mds->get_mds_map()->get_up_mds_set(up_mds);
-    for (set<int>::iterator i = up_mds.begin();
+    for (set<mds_rank_t>::iterator i = up_mds.begin();
 	 i != up_mds.end();
 	 ++i)
       my_targets[*i] = 0.0;
@@ -716,7 +716,7 @@ void MDBalancer::try_rebalance()
 
   // make a sorted list of my imports
   map<double,CDir*>    import_pop_map;
-  multimap<int,CDir*>  import_from_map;
+  multimap<mds_rank_t,CDir*>  import_from_map;
   set<CDir*> fullauthsubs;
 
   mds->mdcache->get_fullauth_subtrees(fullauthsubs);
@@ -739,9 +739,9 @@ void MDBalancer::try_rebalance()
     }
 
     import_pop_map[ pop ] = im;
-    int from = im->inode->authority().first;
+    mds_rank_t from = im->inode->authority().first;
     dout(15) << "  map: i imported " << *im << " from " << from << dendl;
-    import_from_map.insert(pair<int,CDir*>(from, im));
+    import_from_map.insert(pair<mds_rank_t,CDir*>(from, im));
   }
 
 
@@ -749,10 +749,10 @@ void MDBalancer::try_rebalance()
   // do my exports!
   set<CDir*> already_exporting;
 
-  for (map<int,double>::iterator it = my_targets.begin();
+  for (map<mds_rank_t,double>::iterator it = my_targets.begin();
        it != my_targets.end();
        ++it) {
-    int target = (*it).first;
+    mds_rank_t target = (*it).first;
     double amount = (*it).second;
 
     if (amount < MIN_OFFLOAD) continue;
@@ -770,12 +770,12 @@ void MDBalancer::try_rebalance()
     // search imports from target
     if (import_from_map.count(target)) {
       dout(5) << " aha, looking through imports from target mds." << target << dendl;
-      pair<multimap<int,CDir*>::iterator, multimap<int,CDir*>::iterator> p =
+      pair<multimap<mds_rank_t,CDir*>::iterator, multimap<mds_rank_t,CDir*>::iterator> p =
 	import_from_map.equal_range(target);
       while (p.first != p.second) {
 	CDir *dir = (*p.first).second;
 	dout(5) << "considering " << *dir << " from " << (*p.first).first << dendl;
-	multimap<int,CDir*>::iterator plast = p.first++;
+	multimap<mds_rank_t,CDir*>::iterator plast = p.first++;
 
 	if (dir->inode->is_base() ||
 	    dir->inode->is_stray())
@@ -866,13 +866,13 @@ void MDBalancer::try_rebalance()
 bool MDBalancer::check_targets()
 {
   // get MonMap's idea of my_targets
-  const set<int32_t>& map_targets = mds->mdsmap->get_mds_info(mds->whoami).export_targets;
+  const set<mds_rank_t>& map_targets = mds->mdsmap->get_mds_info(mds->whoami).export_targets;
 
   bool send = false;
   bool ok = true;
 
   // make sure map targets are in the old_prev_targets map
-  for (set<int32_t>::iterator p = map_targets.begin(); p != map_targets.end(); ++p) {
+  for (set<mds_rank_t>::iterator p = map_targets.begin(); p != map_targets.end(); ++p) {
     if (old_prev_targets.count(*p) == 0)
       old_prev_targets[*p] = 0;
     if (my_targets.count(*p) == 0)
@@ -880,8 +880,8 @@ bool MDBalancer::check_targets()
   }
 
   // check if the current MonMap has all our targets
-  set<int32_t> need_targets;
-  for (map<int,double>::iterator i = my_targets.begin();
+  set<mds_rank_t> need_targets;
+  for (map<mds_rank_t,double>::iterator i = my_targets.begin();
        i != my_targets.end();
        ++i) {
     need_targets.insert(i->first);
@@ -894,8 +894,8 @@ bool MDBalancer::check_targets()
     }
   }
 
-  set<int32_t> want_targets = need_targets;
-  map<int32_t, int>::iterator p = old_prev_targets.begin();
+  set<mds_rank_t> want_targets = need_targets;
+  map<mds_rank_t, int>::iterator p = old_prev_targets.begin();
   while (p != old_prev_targets.end()) {
     if (map_targets.count(p->first) == 0 &&
 	need_targets.count(p->first) == 0) {
@@ -913,7 +913,7 @@ bool MDBalancer::check_targets()
   dout(10) << "check_targets have " << map_targets << " need " << need_targets << " want " << want_targets << dendl;
 
   if (send) {
-    MMDSLoadTargets* m = new MMDSLoadTargets(mds->monc->get_global_id(), want_targets);
+    MMDSLoadTargets* m = new MMDSLoadTargets(mds_gid_t(mds->monc->get_global_id()), want_targets);
     mds->monc->send_mon_message(m);
   }
   return ok;
