@@ -510,9 +510,8 @@ int md_config_t::parse_option(std::vector<const char*>& args,
     else if (ceph_argparse_witharg(args, i, &val,
 				   as_option.c_str(), (char*)NULL)) {
       if (oss && (
-		  ( (opt->type == OPT_ADDR) ||
-                   // MSEVILLA (opt->type == OPT_STR) || (opt->type == OPT_ADDR) ||
-		   (opt->type == OPT_UUID)) &&
+		  ((opt->type == OPT_ADDR) ||
+		  (opt->type == OPT_UUID)) &&
 		  (observers.find(opt->name) == observers.end()))) {
 	*oss << "You cannot change " << opt->name << " using injectargs.\n";
 	ret = -ENOSYS;

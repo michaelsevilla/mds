@@ -113,6 +113,7 @@ OPTION(heartbeat_file, OPT_STR, "")
 OPTION(heartbeat_inject_failure, OPT_INT, 0)    // force an unhealthy heartbeat for N seconds
 OPTION(perf, OPT_BOOL, true)       // enable internal perf counters
 
+OPTION(ms_type, OPT_STR, "simple")   // messenger backend
 OPTION(ms_tcp_nodelay, OPT_BOOL, true)
 OPTION(ms_tcp_rcvbuf, OPT_INT, 0)
 OPTION(ms_tcp_prefetch_max_size, OPT_INT, 4096) // max prefetch size, we limit this to avoid extra memcpy
@@ -138,6 +139,7 @@ OPTION(ms_inject_delay_probability, OPT_DOUBLE, 0) // range [0, 1]
 OPTION(ms_inject_internal_delays, OPT_DOUBLE, 0)   // seconds
 OPTION(ms_dump_on_send, OPT_BOOL, false)           // hexdump msg to log on send
 OPTION(ms_dump_corrupt_message_level, OPT_INT, 1)  // debug level to hexdump undecodeable messages at
+OPTION(ms_async_op_threads, OPT_INT, 2)
 
 OPTION(inject_early_sigterm, OPT_BOOL, false)
 
@@ -219,7 +221,6 @@ OPTION(mon_osd_min_down_reports, OPT_INT, 3)     // number of times a down OSD m
 OPTION(mon_osd_force_trim_to, OPT_INT, 0)   // force mon to trim maps to this point, regardless of min_last_epoch_clean (dangerous, use with care)
 OPTION(mon_mds_force_trim_to, OPT_INT, 0)   // force mon to trim mdsmaps to this point (dangerous, use with care)
 
-OPTION(mon_advanced_debug_mode, OPT_BOOL, false) // true for developper oriented testing
 // dump transactions
 OPTION(mon_debug_dump_transactions, OPT_BOOL, false)
 OPTION(mon_debug_dump_location, OPT_STR, "/var/log/ceph/$cluster-$name.tdump")
@@ -290,7 +291,7 @@ OPTION(fuse_default_permissions, OPT_BOOL, true)
 OPTION(fuse_big_writes, OPT_BOOL, true)
 OPTION(fuse_atomic_o_trunc, OPT_BOOL, true)
 OPTION(fuse_debug, OPT_BOOL, false)
-OPTION(fuse_multithreaded, OPT_BOOL, false)
+OPTION(fuse_multithreaded, OPT_BOOL, true)
 
 OPTION(crush_location, OPT_STR, "")       // whitespace-separated list of key=value pairs describing crush location
 
@@ -375,9 +376,6 @@ OPTION(mds_debug_scatterstat, OPT_BOOL, false)
 OPTION(mds_debug_frag, OPT_BOOL, false)
 OPTION(mds_debug_auth_pins, OPT_BOOL, false)
 OPTION(mds_debug_subtrees, OPT_BOOL, false)
-OPTION(mds_force_migrate, OPT_STR, "")
-OPTION(mds_lua_balancer, OPT_STR, "")
-OPTION(mds_print_nsubtrees, OPT_INT, 6)
 OPTION(mds_kill_mdstable_at, OPT_INT, 0)
 OPTION(mds_kill_export_at, OPT_INT, 0)
 OPTION(mds_kill_import_at, OPT_INT, 0)
@@ -406,6 +404,7 @@ OPTION(mds_op_complaint_time, OPT_FLOAT, 30) // how many seconds old makes an op
 OPTION(mds_op_log_threshold, OPT_INT, 5) // how many op log messages to show in one go
 OPTION(mds_snap_min_uid, OPT_U32, 0) // The minimum UID required to create a snapshot
 OPTION(mds_snap_max_uid, OPT_U32, 65536) // The maximum UID allowed to create a snapshot
+OPTION(mds_force_migrate, OPT_STR, "")
 
 // If true, compact leveldb store on mount
 OPTION(osd_compact_leveldb_on_mount, OPT_BOOL, false)
@@ -523,6 +522,9 @@ OPTION(osd_heartbeat_addr, OPT_ADDR, entity_addr_t())
 OPTION(osd_heartbeat_interval, OPT_INT, 6)       // (seconds) how often we ping peers
 OPTION(osd_heartbeat_grace, OPT_INT, 20)         // (seconds) how long before we decide a peer has failed
 OPTION(osd_heartbeat_min_peers, OPT_INT, 10)     // minimum number of peers
+
+// max number of parallel snap trims/pg
+OPTION(osd_pg_max_concurrent_snap_trims, OPT_U64, 2)
 
 // minimum number of peers tha tmust be reachable to mark ourselves
 // back up after being wrongly marked down.
@@ -795,6 +797,9 @@ OPTION(rbd_balance_snap_reads, OPT_BOOL, false)
 OPTION(rbd_localize_snap_reads, OPT_BOOL, false)
 OPTION(rbd_balance_parent_reads, OPT_BOOL, false)
 OPTION(rbd_localize_parent_reads, OPT_BOOL, true)
+OPTION(rbd_readahead_trigger_requests, OPT_INT, 10) // number of sequential requests necessary to trigger readahead
+OPTION(rbd_readahead_max_bytes, OPT_LONGLONG, 512 * 1024) // set to 0 to disable readahead
+OPTION(rbd_readahead_disable_after_bytes, OPT_LONGLONG, 50 * 1024 * 1024) // how many bytes are read in total before readahead is disabled
 
 /*
  * The following options change the behavior for librbd's image creation methods that
@@ -912,7 +917,7 @@ OPTION(rgw_bucket_quota_cache_size, OPT_INT, 10000) // number of entries in buck
 
 OPTION(rgw_expose_bucket, OPT_BOOL, false) // Return the bucket name in the 'Bucket' response header
 
-OPTION(rgw_frontends, OPT_STR, "") // alternative front ends
+OPTION(rgw_frontends, OPT_STR, "fastcgi, civetweb port=7480") // rgw front ends
 
 OPTION(rgw_user_quota_bucket_sync_interval, OPT_INT, 180) // time period for accumulating modified buckets before syncing stats
 OPTION(rgw_user_quota_sync_interval, OPT_INT, 3600 * 24) // time period for accumulating modified buckets before syncing entire user stats

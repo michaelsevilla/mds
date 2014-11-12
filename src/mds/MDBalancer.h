@@ -33,12 +33,6 @@ class MHeartbeat;
 class CInode;
 class CDir;
 
-extern "C" {
-  #include "lua.h"
-  #include "lualib.h"
-  #include "lauxlib.h"
-}
-
 class MDBalancer {
  protected:
   MDS *mds;
@@ -62,8 +56,6 @@ class MDBalancer {
 
   // per-epoch state
   double          my_load, target_load;
-  map<string,dirfrag_load_vec_t> pop_subtrees;
-  pair<string,dirfrag_load_vec_t> min_pop_subtree;
   map<mds_rank_t,double> my_targets;
   map<mds_rank_t,double> imported;
   map<mds_rank_t,double> exported;
@@ -104,9 +96,6 @@ public:
   /*check if the monitor has recorded the current export targets;
     if it has then do the actual export. Otherwise send off our
     export targets message again*/
-  void subtree_loads(CInode *in);
-  void dump_subtree_loads();
-  void custom_balancer();
   void custom_migration();
   void force_migrate(CDir *dir, map<string, mds_rank_t> migrations);
   void try_rebalance();
