@@ -12,7 +12,9 @@ TODO:
 1. client utilization: we suspect they are doing more work and sending less requests. This lowers overall throughput but also lowers reply latency for the MDS (sending twice as much but replying faster per requrest).  
 2. mds memory: what is using memory? Look at logging and gdb dump to figure out how much state is kept in memory. What data structures are sucking up memory?  
 3. consequences of revoking capability: why does this improve the efficiency of the MDS?  
-4. figure out why there are so many lookups in client3! Is there a bug in what it can cache? Follow _ll_lookup!  
-
+4. Figure out where MDS error warnings are going...  
+5. Make sure that client leases are getting revoked...  why are tehy only getting revoked on 1 mds?  
+6. re-run and try to migrate before leases expire  
+7. 
 
 End file
