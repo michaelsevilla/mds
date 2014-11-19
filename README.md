@@ -15,6 +15,6 @@ TODO:
 4. Figure out where MDS error warnings are going...  
 5. Make sure that client leases are getting revoked...  why are tehy only getting revoked on 1 mds?  
 6. re-run and try to migrate before leases expire  
-7. 
+7. Flip to bottom of the log (where lookups start) and see if you determine where it is trimming cache and stuff.
 
 End file
