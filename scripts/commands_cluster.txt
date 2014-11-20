@@ -1,5 +1,8 @@
-# Build debian 
-time debuild -b -nc -j32 -rfakeroot -us -uc
+# Build debian
+cd code/ceph
+./autogen; ./configure
+make -j32
+debuild -b -nc -j32 -rfakeroot -us -uc
 
 # Run experiments locally
 sudo ../../cleanup.sh; sudo OSD=3 MDS=3 MON=1 ./vstart.sh -l -n; sudo ./ceph -c ceph.conf mds tell 0 '--debug-ms 0'; sudo ./ceph -c ceph.conf mds tell 1 '--debug-ms 0'; sudo ./ceph -c ceph.conf mds tell 2 '--debug-ms 0'
