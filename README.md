@@ -15,6 +15,10 @@ TODO:
 4. Figure out where MDS error warnings are going...  
 5. Make sure that client leases are getting revoked...  why are tehy only getting revoked on 1 mds?  
 6. re-run and try to migrate before leases expire  
-7. Flip to bottom of the log (where lookups start) and see if you determine where it is trimming cache and stuff.
+7. define states of MDS and which we want to avoid (difference between trimming, flushing, and expiring.  
+8. Why would trimming cause revoke of capability?
+9. Add debugging of states.
+10. Does inside number coincide with lookups? Show we have two different events.  
+
 
 End file
