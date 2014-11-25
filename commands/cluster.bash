@@ -26,6 +26,7 @@ sudo ../../cleanup.sh; sudo OSD=3 MDS=3 MON=1 ./vstart.sh -l -n; sudo ./ceph -c 
 @ each CLIENT: 
   /user/msevilla/programs/mdtest/mdtest -F -C -z 1000 -n 100000 -d /mnt/cephfs/dir0
   # Wait x seconds and force migration
+  sudo ceph --admin-daemon /var/run/ceph/ceph-mds.issdm-15.asok config set debug_mds 0
   sudo ceph mds tell 0 injectargs "--mds_force_migrate /dir0:2"
   sudo ceph tell mds.0 injectargs --debug-mds 0
 
