@@ -19,6 +19,6 @@ TODO:
 8. Why would trimming cause revoke of capability?
 9. Add debugging of states.
 10. Does inside number coincide with lookups? Show we have two different events.  
-
+11. Why can't pthread grab the lock? It is not because of memory pressure... is it random??
 
 End file
