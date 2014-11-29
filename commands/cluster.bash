@@ -9,11 +9,15 @@ sudo ../../cleanup.sh; sudo OSD=3 MDS=3 MON=1 ./vstart.sh -l -n; sudo ./ceph -c 
 (sudo ./ceph-fuse -c ceph.conf /mnt/cephfs -d) > /mnt/vol2/msevilla/ceph-logs/client/client0 2>&1 &
 
 # Run experiments on the cluster
+@MDS: drop caches and check config
+  sudo ceph --admin-daemon /var/run/ceph/ceph*mds.asok config show
+  sudo -s; echo 3 > /proc/sys/vm/drop_caches
 @MON: ceph-deploy/start.sh
 @ each CLIENT:
   mkdir /mnt/vol2/msevilla/ceph-logs/client
   (sudo ceph-fuse /mnt/cephfs -d) > /mnt/vol2/msevilla/ceph-logs/client/client0 2>&1 &
   sudo chown -R msevilla:msevilla /mnt/cephfs
+  
 
 # Start daemon to collect stats (right after heartbeat)
 @MON: 
@@ -45,7 +49,7 @@ sudo ../../cleanup.sh; sudo OSD=3 MDS=3 MON=1 ./vstart.sh -l -n; sudo ./ceph -c 
   ceph osd pool delete cephfs_metadata cephfs_metadata --yes-i-really-really-mean-it
   ceph osd pool create cephfs_data 512
   ceph osd pool create cephfs_metadata 512
-  ceph fs create sevilla_fs cephfs_data cephfs_metadata
+  ceph fs new sevilla_fs cephfs_data cephfs_metadata
 
 # Kill all daemons (wipes out the cluster)
 ./reset.sh
