@@ -12,21 +12,22 @@ fi
 #ceph-deploy install issdm-{0,3,5,10,13,14,15,16,17,34};
 echo "Starting MONs on $MONs"
 ceph-deploy new issdm-$MONs;
+ssh issdm-$MONs "   sudo mkdir -p /mnt/vol2/msevilla/ceph-logs/mon /var/log/ceph; "
 cat ./ceph.template >> ceph.conf;
 ceph-deploy mon create-initial;
 echo
 
 echo "Setting nodes to admin on $ALL"
 for i in $ALL; do
-    ssh issdm-$i "  sudo mkdir -p /etc/ceph; \
-                    sudo chown -R msevilla:msevilla /etc/ceph"
+    ssh issdm-$i "  sudo mkdir -p /etc/ceph /var/log/ceph; \
+                    sudo chown -R msevilla:msevilla /etc/ceph /var/log/ceph;"
     ceph-deploy admin issdm-$i
 done
 echo
 echo "Starting OSDs on $OSDs"
 for i in $OSDs; do
-    ssh issdm-$i "  sudo mkdir -p /var/lib/ceph/osd/ /var/lib/ceph/tmp/ /var/lib/ceph/bootstrap-osd $OUT/osd /etc/ceph; \
-                    sudo chown -R msevilla:msevilla /var/lib/ceph/ $OUT/osd /mnt/vol1/msevilla/* /mnt/vol2/msevilla/* /etc/ceph;"
+    ssh issdm-$i "  sudo mkdir -p /var/lib/ceph/osd/ /var/lib/ceph/tmp/ /var/lib/ceph/bootstrap-osd $OUT/osd /etc/ceph /mnt/vol1/msevilla/ceph-data /mnt/vol2/msevilla/ceph-logs; \
+                    sudo chown -R msevilla:msevilla /var/lib/ceph/ $OUT/osd /mnt/vol1/msevilla/ /mnt/vol2/msevilla/ /etc/ceph;"
                     #sudo opcontrol --deinit > /dev/null 2>&1; \
                     #sudo opcontrol --init; \
                     #sudo opcontrol --setup --vmlinux=/users/msevilla/vmlinux --separate=library; \
@@ -48,11 +49,13 @@ if [ $UNSTABLE -eq 1 ]; then
 fi
 
 echo "Starting MDSs on $MDSs"
-ceph osd pool create cephfs_data 512
-ceph osd pool create cephfs_metadata 512
+ceph osd pool create cephfs_data $PGs
+ceph osd pool create cephfs_metadata $PGs
+ceph osd pool set cephfs_data size 1
+ceph osd pool set cephfs_metadata size 1
 ceph fs new sevilla_fs cephfs_metadata cephfs_data
 for i in $MDSs; do
-    ssh issdm-$i "  sudo mkdir /var/lib/ceph/bootstrap-mds /var/lib/ceph/mds $OUT/mds;"
+    ssh issdm-$i "  sudo mkdir -p /var/lib/ceph/bootstrap-mds /var/lib/ceph/mds $OUT/mds;"
                     #sudo opcontrol --deinit; \
                     #sudo opcontrol --init; \
                     #sudo opcontrol --setup --vmlinux=/users/msevilla/vmlinux --separate=library; \

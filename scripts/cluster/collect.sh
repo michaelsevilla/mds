@@ -3,28 +3,41 @@
 source config.sh
 set -e
 
-# Clear old logs
+./stop.sh
+
+# Create log directories
+for MON in $MONs; do
+    echo "setting up MON $MON"
+    echo "--- setting up MDS $MDS" >> $LOG
+    ssh issdm-$MON "        mkdir $OUT/perf $OUT/cpu $OUT/status; \
+                            cp /user/msevilla/ceph-deploy/config.sh $OUT/status/config.sh" 2>&1
+    
+done
+    
 for MDS in $MDSs; do
     echo "setting up MDS $MDS"
-    ssh issdm-$MDS "        rm -r $OUT/perf $OUT/cpu; \
-                            mkdir $OUT/perf $OUT/cpu; \
+    echo "--- setting up MDS $MDS" >> $LOG
+    ssh issdm-$MDS "        mkdir $OUT/perf $OUT/cpu $OUT/status; \
+                            sudo ceph --admin-daemon /var/run/ceph/ceph-mds*.asok config show > $OUT/status/mds.config; \
                             sudo pkill collectl; \
                             sudo collectl -o z -D -P -i 10 -f /mnt/vol2/msevilla/ceph-logs/cpu/"
 done
 for OSD in $OSDs; do
     echo "setting up OSD $OSD"
-    ssh issdm-$OSD "        rm -r $OUT/perf $OUT/cpu; \
-                            mkdir $OUT/perf $OUT/cpu; \
+    echo "--- setting up OSD $OSD" >> $LOG
+    ssh issdm-$OSD "        mkdir $OUT/perf $OUT/cpu; \
                             sudo pkill collectl; \
                             sudo collectl -o z -D -P -i 10 -f /mnt/vol2/msevilla/ceph-logs/cpu/" >> $LOG 2>&1
 done
-for CLIENT in $CLIENTs; do
-    echo "setting up CLIENT $CLIENT"
-    ssh issdm-$CLIENT "     rm -r $OUT/perf $OUT/cpu; \
-                            mkdir $OUT/perf $OUT/cpu; \ 
-                            sudo pkill collectl; \
-                            sudo collectl -o z -D -P -i 10 -f /mnt/vol2/msevilla/ceph-logs/cpu/" >> $LOG 2>&1
-done
+if [ $COLOCATED_CLIENTS -eq 0 ]; then 
+    for CLIENT in $CLIENTs; do
+        echo "setting up CLIENT $CLIENT"
+        echo "--- setting up CLIENT $CLIENT" >> $LOG 
+        ssh issdm-$CLIENT "     mkdir $OUT/perf $OUT/cpu; \
+                                sudo pkill collectl; \
+                                sudo collectl -o z -D -P -i 10 -f /mnt/vol2/msevilla/ceph-logs/cpu/" >> $LOG 2>&1
+    done
+fi
 
 i=0
 echo "m = mds, o = osd, c = client, a = admin"
@@ -32,8 +45,12 @@ while true; do
     echo -en "$i\t"
     for MDS in $MDSs; do
         ssh issdm-$MDS "    sudo ceph --admin-daemon $SOCKET perf dump >> $OUT/perf/$MDS-$i; \
+                            sudo ceph --admin-daemon $SOCKET session ls >> $OUT/status/$MDS-$i; \
+                            sudo ceph --admin-daemon $SOCKET dump_ops_in_flight >> $OUT/status/$MDS-$i; \
                             $SCRIPTS/parse_all_perf.py $OUT/perf/$MDS-$i mds >> $OUT/perf/mds-issdm-$MDS.timing; \
-                            $SCRIPTS/parse_all_perf.py $OUT/perf/$MDS-$i objecter >> $OUT/perf/objecter-issdm-$MDS.timing;"
+                            $SCRIPTS/parse_all_perf.py $OUT/perf/$MDS-$i objecter >> $OUT/perf/objecter-issdm-$MDS.timing; \
+                            $SCRIPTS/parse_all_perf.py $OUT/perf/$MDS-$i mds_mem >> $OUT/perf/mds_mem-issdm-$MDS.timing; \
+                            $SCRIPTS/parse_all_perf.py $OUT/perf/$MDS-$i mds_log >> $OUT/perf/mds_log-issdm-$MDS.timing;"
                             #echo `date` > $OUT/cpu/$MDS-$i.image; \
                             #echo `date` > $OUT/cpu/$MDS-$i.symbol;"
                             #(top -d 0.5 -n 3 -b > $OUT/cpu/$MDS-$i.proc &); \

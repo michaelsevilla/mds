@@ -2,12 +2,15 @@
 
 # Nodes
 MONs="3"
-#OSDs="0 21 34 39 40 46"
-OSDs="0 21 34 40 46"
-MDSs="15 41 5"
-CLIENTs="11 44 39"
-#CLIENTs=""
-ALL="3 0 21 34 39 40 15 41 5 11 44 46 36"
+#OSDs="0 11 21 34 39"
+OSDs="0 11 21 34 39 40 46 5 10 41"
+PGs=1024
+#MDSs="15 41 5"
+MDSs="15"
+CLIENTs="5 10 41"
+COLOCATED_CLIENTS=1
+#ALL="3 0 21 34 39 40 15 41 5 11 44 46"
+ALL="0 3 10 21 34 39 40 15 41 5 11 46"
 
 # Install
 DEB="/user/msevilla/ceph-lua_3_amd64.deb"
