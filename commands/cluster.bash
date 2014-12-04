@@ -11,7 +11,7 @@ sudo ../../cleanup.sh; sudo OSD=3 MDS=3 MON=1 ./vstart.sh -l -n; sudo ./ceph -c 
 # Run experiments on the cluster
 @MON: ceph-deploy/start.sh
 @MDS: drop caches and check config
-  sudo ceph --admin-daemon /var/run/ceph/ceph*mds.asok config show
+  sudo ceph --admin-daemon /var/run/ceph/ceph*.asok config show
   sudo -s; echo 3 > /proc/sys/vm/drop_caches
 @ each CLIENT:
   sudo -s; echo 3 > /proc/sys/vm/drop_caches
@@ -41,7 +41,9 @@ sudo ../../cleanup.sh; sudo OSD=3 MDS=3 MON=1 ./vstart.sh -l -n; sudo ./ceph -c 
 
 # Delete file system data: stop MDS and delete fs
 @MON:
-  ceph mds set_max_mds 0; ceph mds cluster_down; ceph mds fail 0; ceph fs rm sevilla_fs --yes-i-really-mean-it; ceph osd pool delete cephfs_data cephfs_data --yes-i-really-really-mean-it;   ceph osd pool delete cephfs_metadata cephfs_metadata --yes-i-really-really-mean-it; ceph osd pool create cephfs_data 512; ceph osd pool create cephfs_metadata 512; ceph fs new sevilla_fs cephfs_data cephfs_metadata; ./stop.sh
+  ./stop.sh; ceph mds set_max_mds 0; ceph mds cluster_down; ceph mds fail 0; ceph fs rm sevilla_fs --yes-i-really-mean-it; ceph osd pool delete cephfs_data cephfs_data --yes-i-really-really-mean-it;   ceph osd pool delete cephfs_metadata cephfs_metadata --yes-i-really-really-mean-it; 
+  ceph osd pool create cephfs_data 512; ceph osd pool create cephfs_metadata 512; ceph osd pool set cephfs_data size 1; ceph osd pool set cephfs_metadata size 1; 
+  ceph fs new sevilla_fs cephfs_data cephfs_metadata; 
 
 # Kill all daemons (wipes out the cluster)
 ./reset.sh
