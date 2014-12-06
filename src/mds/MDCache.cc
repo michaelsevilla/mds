@@ -413,6 +413,8 @@ void MDCache::create_mydir_hierarchy(MDSGather *gather)
   CDir *mydir = my->get_or_open_dirfrag(this, frag_t());
   adjust_subtree_auth(mydir, mds->whoami);   
 
+  LogSegment *ls = mds->mdlog->get_current_segment();
+
   // stray dir
   for (int i = 0; i < NUM_STRAY; ++i) {
     CInode *stray = create_system_inode(MDS_INO_STRAY(mds->whoami, i), S_IFDIR);
@@ -428,8 +430,10 @@ void MDCache::create_mydir_hierarchy(MDSGather *gather)
     mydir->fnode.fragstat.nsubdirs++;
     // save them
     straydir->mark_complete();
-    straydir->mark_dirty(straydir->pre_dirty(), mds->mdlog->get_current_segment());
+    straydir->mark_dirty(straydir->pre_dirty(), ls);
     straydir->commit(0, gather->new_sub());
+    stray->_mark_dirty_parent(ls, true);
+    stray->store_backtrace(gather->new_sub());
   }
 
   CInode *journal = create_system_inode(MDS_INO_LOG_OFFSET + mds->whoami, S_IFREG);
@@ -449,7 +453,7 @@ void MDCache::create_mydir_hierarchy(MDSGather *gather)
 
 
   mydir->mark_complete();
-  mydir->mark_dirty(mydir->pre_dirty(), mds->mdlog->get_current_segment());
+  mydir->mark_dirty(mydir->pre_dirty(), ls);
   mydir->commit(0, gather->new_sub());
 
   myin->store(gather->new_sub());
@@ -6877,7 +6881,7 @@ void MDCache::check_memory_usage()
   float caps_per_inode = (float)num_caps / (float)num_inodes;
   //float cap_rate = (float)num_inodes_with_caps / (float)inode_map.size();
 
-  dout(0) << "check_memory_usage"
+  dout(2) << "check_memory_usage"
 	   << " total " << last.get_total()
 	   << ", rss " << last.get_rss()
 	   << ", heap " << last.get_heap()
@@ -6892,9 +6896,6 @@ void MDCache::check_memory_usage()
   mds->mlogger->set(l_mdm_rss, last.get_rss());
   mds->mlogger->set(l_mdm_heap, last.get_heap());
   mds->mlogger->set(l_mdm_malloc, last.malloc);
-  mds->mlogger->set(l_mdm_mmap, last.mmap);
-  mds->mlogger->set(l_mdm_total, last.get_total());
-  mds->mlogger->set(l_mdm_max, g_conf->mds_mem_max);
 
   /*int size = last.get_total();
   if (size > g_conf->mds_mem_max * .9) {
@@ -11369,6 +11370,7 @@ void MDCache::show_subtrees(int dbl)
     else
       snprintf(s, sizeof(s), "%2d,%2d", int(dir->get_dir_auth().first), int(dir->get_dir_auth().second));
     
+    // print
     dout(dbl) << indent << "|_" << pad << s << " " << auth << *dir << dendl;
 
     if (dir->ino() == MDS_INO_ROOT)

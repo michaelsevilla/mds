@@ -4,7 +4,7 @@ import json
 from datetime import time, datetime
 if len(sys.argv) < 3:
     print "Convert space delimited file of \"Date time count sum\" into \"Date time reply_latency\"" 
-    print sys.argv[0], "<file> <latency|ops-per-second>"
+    print "USAGE:", sys.argv[0], "<file> <latency|ops-per-second>"
     sys.exit(0)
 
 l = 0

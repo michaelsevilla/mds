@@ -55,7 +55,6 @@ void Beacon::init(MDSMap const *mdsmap, MDSMap::DaemonState want_state_,
 {
   Mutex::Locker l(lock);
   assert(mdsmap != NULL);
-  dout(0) << "MSEVILLA: BRINGING UP AN MDSBEACON!" << dendl;
 
   // Initialize copies of MDS state
   want_state = want_state_;
@@ -261,10 +260,10 @@ void Beacon::notify_health(MDS const *mds)
   {
     if (mds->mdlog->get_num_segments() > (size_t)(g_conf->mds_log_max_segments * 2)) {
       std::ostringstream oss;
-      oss << "Behind on trimming (" << mds->mdlog->get_num_segments()
-        << "/" << g_conf->mds_log_max_segments << ")";
       dout(0) << "Behind on trimming (" << mds->mdlog->get_num_segments()
         << "/" << g_conf->mds_log_max_segments << ")" << dendl;
+      oss << "Behind on trimming (" << mds->mdlog->get_num_segments()
+        << "/" << g_conf->mds_log_max_segments << ")";
 
       MDSHealthMetric m(MDS_HEALTH_TRIM, HEALTH_WARN, oss.str());
       m.metadata["num_segments"] = mds->mdlog->get_num_segments();
@@ -294,8 +293,8 @@ void Beacon::notify_health(MDS const *mds)
       }
 
       std::ostringstream oss;
-      oss << "Client " << s->get_human_name() << " failing to respond to capability release";
       dout(0) << "Client " << s->get_human_name() << " failing to respond to capability release" << dendl;
+      oss << "Client " << s->get_human_name() << " failing to respond to capability release";
       MDSHealthMetric m(MDS_HEALTH_CLIENT_LATE_RELEASE, HEALTH_WARN, oss.str());
       m.metadata["client_id"] = stringify(i->v);
       late_cap_metrics.push_back(m);
@@ -305,10 +304,10 @@ void Beacon::notify_health(MDS const *mds)
       health.metrics.splice(health.metrics.end(), late_cap_metrics);
     } else {
       std::ostringstream oss;
-      oss << "Many clients (" << late_cap_metrics.size()
-          << ") failing to respond to capability release";
       dout(0) << "Many clients (" << late_cap_metrics.size()
           << ") failing to respond to capability release" << dendl;
+      oss << "Many clients (" << late_cap_metrics.size()
+          << ") failing to respond to capability release";
       MDSHealthMetric m(MDS_HEALTH_CLIENT_LATE_RELEASE_MANY, HEALTH_WARN, oss.str());
       m.metadata["client_count"] = late_cap_metrics.size();
       health.metrics.push_back(m);
@@ -334,8 +333,8 @@ void Beacon::notify_health(MDS const *mds)
         if (session->recalled_at < cutoff) {
           dout(20) << "  exceeded timeout " << session->recalled_at << " vs. " << cutoff << dendl;
           std::ostringstream oss;
-        oss << "Client " << session->get_human_name() << " failing to respond to cache pressure";
         dout(0) << "Client " << session->get_human_name() << " failing to respond to cache pressure" << dendl;
+        oss << "Client " << session->get_human_name() << " failing to respond to cache pressure";
           MDSHealthMetric m(MDS_HEALTH_CLIENT_RECALL, HEALTH_WARN, oss.str());
           m.metadata["client_id"] = session->info.inst.name.num();
           late_recall_metrics.push_back(m);
@@ -349,10 +348,10 @@ void Beacon::notify_health(MDS const *mds)
       health.metrics.splice(health.metrics.end(), late_recall_metrics);
     } else {
       std::ostringstream oss;
-      oss << "Many clients (" << late_recall_metrics.size()
-          << ") failing to respond to cache pressure";
       dout(0) << "Many clients (" << late_recall_metrics.size()
           << ") failing to respond to cache pressure" << dendl;
+      oss << "Many clients (" << late_recall_metrics.size()
+          << ") failing to respond to cache pressure";
       MDSHealthMetric m(MDS_HEALTH_CLIENT_RECALL_MANY, HEALTH_WARN, oss.str());
       m.metadata["client_count"] = late_recall_metrics.size();
       health.metrics.push_back(m);

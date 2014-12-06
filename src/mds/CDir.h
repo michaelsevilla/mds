@@ -162,7 +162,6 @@ public:
 
   CInode          *inode;  // my inode
   frag_t           frag;   // my frag
-  static string balancer;
 
   bool is_lt(const MDSCacheObject *r) const {
     return dirfrag() < (static_cast<const CDir*>(r))->dirfrag();
@@ -298,7 +297,6 @@ protected:
   inodeno_t ino()     const { return inode->ino(); }          // deprecate me?
   frag_t    get_frag()    const { return frag; }
   dirfrag_t dirfrag() const { return dirfrag_t(inode->ino(), frag); }
-  string get_balancer() const { return balancer; }
 
   CInode *get_inode()    { return inode; }
   CDir *get_parent_dir() { return inode->get_parent_dir(); }
@@ -398,7 +396,6 @@ private:
   mds_authority_t get_dir_auth() { return dir_auth; }
   void set_dir_auth(mds_authority_t a);
   void set_dir_auth(mds_rank_t a) { set_dir_auth(mds_authority_t(a, CDIR_AUTH_UNKNOWN)); }
-  string set_balancer(string s);
   bool is_ambiguous_dir_auth() {
     return dir_auth.second != CDIR_AUTH_UNKNOWN;
   }

@@ -99,9 +99,6 @@ enum {
   l_mdm_rss,
   l_mdm_heap,
   l_mdm_malloc,
-  l_mdm_max,
-  l_mdm_mmap,
-  l_mdm_total,
   l_mdm_buf,
   l_mdm_last,
 };
@@ -381,6 +378,10 @@ private:
   void check_ops_in_flight(); // send off any slow ops to monitor
   void command_scrub_path(Formatter *f, const string& path);
   void command_flush_path(Formatter *f, const string& path);
+  void command_flush_journal(Formatter *f);
+ private:
+  int _command_flush_journal(std::stringstream *ss);
+ public:
     // config observer bits
   virtual const char** get_tracked_conf_keys() const;
   virtual void handle_conf_change(const struct md_config_t *conf,

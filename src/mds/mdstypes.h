@@ -950,11 +950,7 @@ public:
       2*vec[META_POP_FETCH].get_last() +
       4*vec[META_POP_STORE].get_last();
   }
-  // Added by MSEVILLA
-  double get_meta_total() {
-    return vec[META_POP_IRD].get_last() + vec[META_POP_IWR].get_last() 
-      + vec[META_POP_READDIR].get_last() + vec[META_POP_FETCH].get_last() + vec[META_POP_STORE].get_last();
-  }
+
   void add(utime_t now, DecayRate& rate, dirfrag_load_vec_t& r) {
     for (int i=0; i<dirfrag_load_vec_t::NUM; i++)
       vec[i].adjust(r.vec[i].get(now, rate));
@@ -1002,7 +998,6 @@ struct mds_load_t {
   double queue_len;
 
   double cpu_load_avg;
-  int mem_load;
 
   mds_load_t(const utime_t &t) : 
     auth(t), all(t), req_rate(0), cache_hit_rate(0),
