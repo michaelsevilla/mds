@@ -1,4 +1,6 @@
 # To plot the reply rate
-for i in {0..20}; do parse_perf.py 5-$i mds reply_latency >> reply_issdm-5; done
-parse_replyl.py reply_issdm-5 ops-per-second >> replyt_issdm-5
-parse_replyl.py reply_issdm-5 latency >> replyl_issdm-5
+export MDS=15
+export SAMPLES=20
+for i in {0..$SAMPLES}; do parse_perf.py $MDS-$i mds reply_latency >> reply_issdm-$MDS; done
+parse_replyl.py reply_issdm-$MDS ops-per-second >> replyt_issdm-$MDS
+parse_replyl.py reply_issdm-$MDS latency >> replyl_issdm-$MDS
