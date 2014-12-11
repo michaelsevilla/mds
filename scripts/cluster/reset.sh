@@ -53,7 +53,7 @@ if [ "$ans" == "y" ]; then
         ssh issdm-$i "  sudo stop ceph-all; \
                         sudo chown msevilla:msevilla -R /var/lib/ceph /var/log/ceph /etc/ceph /mnt/vol1/msevilla/ceph-data; \
                         sudo rm -r --one-file-system /var/lib/ceph/* /var/log/ceph/* /etc/ceph/*; \
-                        sudo rm -r --one-file-system /mnt/vol1/msevilla/ceph-data/* /mnt/vol2/msevilla/ceph-logs/*;" >> $LOG 2>&1
+                        sudo rm -r --one-file-system /mnt/vol1/msevilla/ceph-data/* /mnt/vol2/msevilla/ceph-logs/* /mnt/vol3/msevilla/ceph-data/*;" >> $LOG 2>&1
         ssh issdm-$i "  ps aux | grep ceph | grep \"fuse\|mds\|osd\|mon\" | grep -v \"grep\""
     done 
     echo

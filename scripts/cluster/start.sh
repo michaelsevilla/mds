@@ -33,8 +33,8 @@ for i in $OSDs; do
                     #sudo opcontrol --setup --vmlinux=/users/msevilla/vmlinux --separate=library; \
                     #sudo opcontrol --event=default; \
                     #sudo opcontrol --start;"
-    ceph-deploy osd prepare issdm-$i:/mnt/vol1/msevilla/ceph-data;
-    ceph-deploy osd activate issdm-$i:/mnt/vol1/msevilla/ceph-data;
+    ceph-deploy osd prepare issdm-$i:/mnt/vol1/msevilla/ceph-data:/mnt/vol3/msevilla/ceph-data/journal;
+    ceph-deploy osd activate issdm-$i:/mnt/vol1/msevilla/ceph-data:/mnt/vol3/msevilla/ceph-data/journal;
 done
 echo
 

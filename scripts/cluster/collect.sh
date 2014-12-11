@@ -20,7 +20,7 @@ for MDS in $MDSs; do
     ssh issdm-$MDS "        mkdir $OUT/perf $OUT/cpu $OUT/status; \
                             sudo ceph --admin-daemon /var/run/ceph/ceph-mds*.asok config show > $OUT/status/mds.config; \
                             sudo pkill collectl; \
-                            sudo collectl -o z -D -P -i 10 -f /mnt/vol2/msevilla/ceph-logs/cpu/"
+                            sudo collectl -o z -D -P -i 1 -f /mnt/vol2/msevilla/ceph-logs/cpu/"
 done
 for OSD in $OSDs; do
     echo "setting up OSD $OSD"
