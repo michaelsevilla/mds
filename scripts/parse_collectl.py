@@ -15,13 +15,9 @@ if fname:
         if "Date Time" in line:
             words = line.split(" ")
             for w in words:
-                print count, w
+                #print count, w
                 vals.append(w)
                 count += 1
 for v in vals:
-    sys.stdout.write(str(v) + ",")
+    sys.stdout.write(str(v) + " ")
 
-count = 1
-for v in vals:
-    sys.stdout.write(str(count) + ",")
-    count += 1
