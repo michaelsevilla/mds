@@ -20,6 +20,7 @@ if len(sys.argv) > 3:
 time = datetime.now()
 perf_counters = json.load(f)
 
+count = 3
 if l == "legend":
     print " date time ",
     for component in perf_counters:
@@ -28,6 +29,7 @@ if l == "legend":
             for i in counters:
                 if isinstance(perf_counters[component][i], int):
                     sys.stdout.write(i + " ")
+                    count += 1
 elif l == "reply_latency":
     print time, 
     for component in perf_counters:
