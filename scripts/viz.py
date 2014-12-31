@@ -93,6 +93,7 @@ def graph(d):
         whoops("It looks like you aren't in a directory that has the necessary log files (e.g., ./perf, ./cpu).")
 
     daemons = parse_config().get(d).split()
+    daemon = raw_input_exit("Which " + d + ": " + str(daemons) + "?\n")
     metric = raw_input_exit("Pick metric type \n-- 1. utilization\n-- 2. perfcounter\n-- 3. performance\n")
     
     # each metric has unique 1. file names and 2. options for graphing
@@ -100,19 +101,19 @@ def graph(d):
         # pull out the file name
         files = os.listdir("./cpu")
         for f in files:
-            if "issdm-" in f and daemons[0] in f and "tab" in f:
+            if "issdm-" in f and daemon in f and "tab" in f:
                 filename = "./cpu/" + f
         # pull out the values we can graph
         options = run("parse_collectl.py " + filename)
     elif metric == 'perfcounter' or metric == '2':
         # pull out the component in the perf counter file
-        options = run("parse_perf.py ./perf/" + daemons[0] + "-0 component component")
+        options = run("parse_perf.py ./perf/" + daemon + "-0 component component")
         component = raw_input_exit("Pick component: " + str(options) + "\n")
         if component not in options:
             retry_graph(d, "I don't know that metric.")
-        filename = "./perf/" + component + "-issdm-" + daemons[0] + ".timing"
+        filename = "./perf/" + component + "-issdm-" + daemon + ".timing"
         # pull out the values we can graph
-        options = run("parse_perf.py ./perf/" + daemons[0] + "-0 " + component + " legend")
+        options = run("parse_perf.py ./perf/" + daemon + "-0 " + component + " legend")
     elif metric == 'performance' or metric == '3':
         options = "date time latency thruput"
     else:
@@ -143,25 +144,23 @@ def graph(d):
     s = s[0:len(s) - 1]
     f = f[0:len(f) - 1]
 
-    for daemon in daemons:
-        if metric == 'utilization' or metric == '1':
-            # pull out the file name
-            files = os.listdir("./cpu")
-            for name in files:
-                if "issdm-" in name and daemon in name and "tab" in name:
-                    filename = "./cpu/" + name
-        elif metric == 'perfcounter' or metric == '2':
-            filename = "./perf/" + component + "-issdm-" + daemon + ".timing"
-        elif metric == 'performance' or metric == '3':
-            filename = "./perf/replyc_issdm-" + daemon 
-        if os.path.exists(filename):
-            cmd = "tailplot -x 2 --field-format=2,date,HH:mm:ss --x-format=date,HH:mm:ss -f " + f + " -s " + s + " -t issdm-" + daemon + " " + filename
-        else:
-            whoops("Filename " + filename + " does not exists. You might have to make it manually You might have to make it manually.")
-        print "Running:", cmd
-        subprocess.Popen(cmd.split())
+    if metric == 'utilization' or metric == '1':
+        # pull out the file name
+        files = os.listdir("./cpu")
+        for name in files:
+            if "issdm-" in name and "-" + daemon + "-" in name and "tab" in name:
+                filename = "./cpu/" + name
+    elif metric == 'perfcounter' or metric == '2':
+        filename = "./perf/" + component + "-issdm-" + daemon + ".timing"
+    elif metric == 'performance' or metric == '3':
+        filename = "./perf/replyc_issdm-" + daemon 
+    if os.path.exists(filename):
+        cmd = "tailplot -x 2 --field-format=2,date,HH:mm:ss --x-format=date,HH:mm:ss -f " + f + " -s " + s + " -t issdm-" + daemon + " " + filename
+    else:
+        whoops("Filename " + filename + " does not exists. You might have to make it manually.")
+    print "Running:", cmd
+    subprocess.Popen(cmd.split())
     print "********** DONE **********\n\n"
-    time.sleep(3)
     main()
     
 def main():

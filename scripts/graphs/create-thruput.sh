@@ -1,5 +1,5 @@
 file = "create-throughput"
-data0 = "./data/req_thruput"
+data0 = "./data/req_thruput0"
 
 load "/home/msevilla/mds/scripts/graphs/header.gnu"
 set output '| ps2pdf - ./images/'.file.'.pdf'
@@ -16,7 +16,7 @@ set ytics font "Helvetica, 14"
 
 # plot 1: thruput request balancer
 set key top right font "Helvetica, 24"
-set xrange['14:31:23':'14:41:23']
+#set xrange['14:31:23':'14:41:23']
 set xtics("2" '14:33:23', "4" '14:35:23', "6" '14:37:23', "8" '14:39:23', "10" '14:41:23')
 set ylabel "Metadata req/s" 
 set format y "%.0s%c"
@@ -30,16 +30,16 @@ plot \
 # plot 2: thruput cpu balancer
 #set title "CPU load balancer"
 set notitle
-set xrange['14:52:02':'15:02:02']
+#set xrange['14:52:02':'15:02:02']
 set xtics("2" '14:54:02', "4" '14:56:02', "6" '14:58:02', "8" '15:00:02', "10" '15:02:02')
 set ylabel "Metadata req/s"
 set format y "%.0s%c"
 set yrange[0:70000]
 set ytics 20000, 20000
 plot \
-    data2 u 2:($3 + $4 + $5)  with filledcurves fill pattern 4 ls 1 title "MDS 2", \
-    data2 u 2:($3 + $4)       with filledcurves fill pattern 5 ls 3 title "MDS 1", \
-    data2 u 2:3               with filledcurves fill pattern 2 ls 4 title "MDS 0"
+    data0 u 2:($3 + $4 + $5)  with filledcurves fill pattern 4 ls 1 title "MDS 2", \
+    data0 u 2:($3 + $4)       with filledcurves fill pattern 5 ls 3 title "MDS 1", \
+    data0 u 2:3               with filledcurves fill pattern 2 ls 4 title "MDS 0"
 
 # plot 3: cpu request balancer 
 #set notitle
