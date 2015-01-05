@@ -85,40 +85,65 @@ def get_names(vals, array):
         ret.append(get_name(v, array))
     return ret
 
+# construct the filename based on the metric
+def get_fname(metric, daemon, component=None):
+    if metric == 'utilization' or metric == '1':
+        # pull out the file name
+        files = os.listdir("./cpu")
+        for name in files:
+            if "issdm-" in name and "-" + daemon + "-" in name and "tab" in name:
+                return "./cpu/" + name
+    elif metric == 'perfcounter' or metric == '2':
+        return "./perf/" + component + "-issdm-" + daemon + ".timing"
+    elif metric == 'performance' or metric == '3':
+        return "./perf/replyc_issdm-" + daemon 
+
+def tailplot(f, s, d, metric, component=None):
+    filename = get_fname(metric, d, component)
+    if not f or not s or not d or not metric or not filename:
+        print "Not running because one of the fields is not present (f, s, d, metric, filename):", f, s, d, metric, filename
+        return
+    cmd = "tailplot -x 2 --field-format=2,date,HH:mm:ss --x-format=date,HH:mm:ss -f " + f + " -s " + s + " -t issdm-" + d + " " + filename
+    subprocess.Popen(cmd.split())
+    print "Running:", cmd, "\n********** DONE **********\n\n"
+
 # use tailplot to graph the user-selected component and values
 def graph(d):
+    graphall = False
+    component = None
+
     # check that the directory has all the necessary folders
     dirs = os.listdir("./")
     if 'perf' not in dirs and 'cpu' not in dirs:
         whoops("It looks like you aren't in a directory that has the necessary log files (e.g., ./perf, ./cpu).")
 
+    # the user selects a metric based on the the daemon type
     daemons = parse_config().get(d).split()
-    daemon = raw_input_exit("Which " + d + ": " + str(daemons) + "?\n")
+    daemon = raw_input_exit("Which " + d + ": " + str(daemons) + " or ALL?\n")
     metric = raw_input_exit("Pick metric type \n-- 1. utilization\n-- 2. perfcounter\n-- 3. performance\n")
+    if daemon == 'ALL':
+        daemon = daemons[0]
+        graphall = True
     
-    # each metric has unique 1. file names and 2. options for graphing
+    # pull out the value to graph from the options; options are listed with helper scripts
     if metric == 'utilization' or metric == '1':
-        # pull out the file name
-        files = os.listdir("./cpu")
-        for f in files:
-            if "issdm-" in f and daemon in f and "tab" in f:
-                filename = "./cpu/" + f
-        # pull out the values we can graph
+        filename = get_fname(metric, daemon)
         options = run("parse_collectl.py " + filename)
     elif metric == 'perfcounter' or metric == '2':
-        # pull out the component in the perf counter file
         options = run("parse_perf.py ./perf/" + daemon + "-0 component component")
         component = raw_input_exit("Pick component: " + str(options) + "\n")
         if component not in options:
             retry_graph(d, "I don't know that metric.")
-        filename = "./perf/" + component + "-issdm-" + daemon + ".timing"
-        # pull out the values we can graph
+        filename = get_fname(metric, daemon, component)
         options = run("parse_perf.py ./perf/" + daemon + "-0 " + component + " legend")
     elif metric == 'performance' or metric == '3':
         options = "date time latency thruput"
+        filename = get_fname(metric, daemon)
     else:
         retry_graph(d, "I don't know that metric.")
+
     
+    # the user selects which field of the metric to graph
     print "Pick a value to graph:"
     splitoptions = options.split() 
     for i in range(0, len(splitoptions)): print str(i + 1) + "." + splitoptions[i] + " ",
@@ -130,37 +155,29 @@ def graph(d):
         retry_graph(d, "Couldn't find all the values (" + str(fields) + ") in the options")
     if 'date' in fields or 'time' in fields:
         retry_graph(d, "It doesn't make sense to plot date/time on the y axis.")
+
+    # construct the field and select arguments for tailplot
     indices = []
-    f = ""
+    f = ""              # column headings
     for v in fields:
         if v not in options.split():
             retry_graph(d, "That isn't one of the plottable values.")
         indices.append(options.split().index(v) + 1)
         f += v + ","
-
-    s = ""
+    s = ""              # column indices
     for i in indices:
         s += str(i) + ","
-    s = s[0:len(s) - 1]
+    # strip the commas
     f = f[0:len(f) - 1]
+    s = s[0:len(s) - 1]
 
-    if metric == 'utilization' or metric == '1':
-        # pull out the file name
-        files = os.listdir("./cpu")
-        for name in files:
-            if "issdm-" in name and "-" + daemon + "-" in name and "tab" in name:
-                filename = "./cpu/" + name
-    elif metric == 'perfcounter' or metric == '2':
-        filename = "./perf/" + component + "-issdm-" + daemon + ".timing"
-    elif metric == 'performance' or metric == '3':
-        filename = "./perf/replyc_issdm-" + daemon 
-    if os.path.exists(filename):
-        cmd = "tailplot -x 2 --field-format=2,date,HH:mm:ss --x-format=date,HH:mm:ss -f " + f + " -s " + s + " -t issdm-" + daemon + " " + filename
+    # call tailplot
+    if not os.path.exists(filename):
+        whoops("Filename " + filename + " does not exist. You might have to make it manually.")
+    if graphall:
+        for d in daemons: tailplot(f, s, d, metric, component)
     else:
-        whoops("Filename " + filename + " does not exists. You might have to make it manually.")
-    print "Running:", cmd
-    subprocess.Popen(cmd.split())
-    print "********** DONE **********\n\n"
+        tailplot(f, s, daemon, metric)
     main()
     
 def main():
