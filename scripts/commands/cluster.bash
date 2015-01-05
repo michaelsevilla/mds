@@ -8,6 +8,7 @@ sudo ../../cleanup.sh; sudo OSD=3 MDS=3 MON=1 ./vstart.sh -l -n; sudo ./ceph -c 
 
 # Bring up the cluster
 check MDS config and config.sh
+sudo mount /dev/sdb1 /mnt/vol1 -o noexec -o noexec -o nodev -o noatime -o nodiratime -o nobarrier
 @MON: ceph-deploy/start.sh
 
 # Run experiments on the cluster
