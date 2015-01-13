@@ -177,7 +177,7 @@ def graph(d):
     if graphall:
         for d in daemons: tailplot(f, s, d, metric, component)
     else:
-        tailplot(f, s, daemon, metric)
+        tailplot(f, s, daemon, metric, component)
     main()
     
 def main():

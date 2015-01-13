@@ -1,5 +1,5 @@
 HELPERS="/home/msevilla/mds/scripts/helpers"
-
+ls
 echo "how many samples?"
 read SAMPLES
 
