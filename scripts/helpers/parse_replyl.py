@@ -10,6 +10,7 @@ if len(sys.argv) < 3:
 l = 0
 f = open(sys.argv[1])
 stat = sys.argv[2]
+interval = 10.0
 
 time = datetime.now()
 pcount = 0
@@ -29,7 +30,7 @@ for line in f:
             print words[0], words[1], 0
     elif stat == "ops-per-second":
         try:
-            print words[0], words[1], count - pcount
+            print words[0], words[1], (count - pcount)/interval
         except: 
             print words[0], words[1], 0
     else:

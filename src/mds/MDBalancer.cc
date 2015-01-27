@@ -349,7 +349,8 @@ void MDBalancer::do_fragmenting()
   }
 
   if (!split_queue.empty()) {
-    dout(10) << "do_fragmenting " << split_queue.size() << " dirs marked for possible splitting" << dendl;
+    // MSEVILLA
+    dout(0) << "do_fragmenting " << split_queue.size() << " dirs marked for possible splitting" << dendl;
 
     set<dirfrag_t> q;
     q.swap(split_queue);
@@ -368,7 +369,8 @@ void MDBalancer::do_fragmenting()
   }
 
   if (!merge_queue.empty()) {
-    dout(10) << "do_fragmenting " << merge_queue.size() << " dirs marked for possible merging" << dendl;
+    // MSEVILLA
+    dout(0) << "do_fragmenting " << merge_queue.size() << " dirs marked for possible merging" << dendl;
 
     set<dirfrag_t> q;
     q.swap(merge_queue);
@@ -417,104 +419,51 @@ void MDBalancer::do_fragmenting()
   }
 }
 
-void MDBalancer::force_migrate(CDir *dir, map<string, mds_rank_t> migrations) {
-  string path;
-  dir->get_inode()->make_path_string_projected(path);
-  dout(5) << "determine if auth " << path << " needs to migrate" << dendl;
+/* MSEVILLA
+ * input: g_conf->mds_when
+ * options: 
+ *   clients: # client sessions
+ *   cpu: threshold for % of total
+ *   memory: threshold for % of total
+ *   inodes: # of cached inodes
+ */
+void MDBalancer::fill_and_spill() 
+{
+  string when = g_conf->mds_when.c_str();
+  string threshold, value;
+  size_t colon;
 
-  // we don't care about snapshot directories
-  if (path.find("~") == 0) 
+  colon = when.find(":");
+  if (colon == string::npos) {
+    dout(0) << "invalid conf: key-value pair (" << when << ") doesn't have a colon (:)" << dendl;
     return;
-
-  map<string,mds_rank_t>::iterator migrations_it;
-  if ((migrations_it = migrations.find(path)) != migrations.end()) {
-    // the conf file says to migrate the auth subtree
-    if (!dir->is_auth() || dir->is_freezing() || dir->is_frozen() ||
-        dir->inode->is_base() || dir->inode->is_stray()) return;
-
-    mds_rank_t target = migrations_it->second;
-    dout(5) << " force migrate auth " << *dir << ", ship it MDS" << target << dendl;
-    mds->mdcache->show_subtrees(0);
-    mds->mdcache->migrator->export_dir_nicely(dir, target);
-    mds->mdcache->show_subtrees(0);
   }
-  else {  
-    // drill down and see if the conf file tells use to move any of the lower subtrees
-    for (CDir::map_t::iterator direntry_it = dir->begin();
-         direntry_it != dir->end();
-         ++direntry_it) {
-      CInode *in = direntry_it->second->get_linkage()->get_inode();
-      dout(5) << "  checking direntry: " << *in << dendl;
-      if (!in) continue;
-      if (!in->is_dir()) continue;
-      
-      string dirpath;
-      in->make_path_string_projected(dirpath);
-      if ((migrations_it = migrations.find(dirpath)) != migrations.end()) {
-        list<CDir*> dirfrags;
-        in->get_dirfrags(dirfrags);
-        for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
-             dirfrags_it != dirfrags.end();
-             dirfrags_it++) {
-          CDir *subdir = *dirfrags_it;
-          dout(5) << "   checking dirfrag: " << *subdir << dendl;
-          
-          if (!subdir->is_auth() || subdir->is_freezing() || subdir->is_frozen() ||
-              subdir->inode->is_base() || subdir->inode->is_stray()) continue;
+  threshold = when.substr(0, colon);
+  value = when.substr(colon + 1);
 
-          mds_rank_t target = migrations_it->second;
-          if (mds->whoami != target) {
-            dout(5) << "    force migrate dirfrag: " << *subdir << ", ship it to MDS" << target << dendl;
-            mds->mdcache->show_subtrees(0);
-            mds->mdcache->migrator->export_dir_nicely(subdir, target);
-            mds->mdcache->show_subtrees(0);
-          }
-          else 
-            dout(5) << "    not sending dirfrag (" << *subdir << ") to myself" << dendl;
-          force_migrate(subdir, migrations);
-        }
+  if (!threshold.compare("client"))
+    dout(0) << "spilling and filling when there are >= " << value << " clients" << dendl;
+  else if (!threshold.compare("cpu")) {
+    int cluster_size = mds->get_mds_map()->get_num_in_mds();
+    mds_rank_t whoami = mds->get_nodeid();
+    dout(0) << "spilling and filling when the CPU utilization is >= " << value << "%" << dendl;
+    for (mds_rank_t i=mds_rank_t(0); i < mds_rank_t(cluster_size); i++) {
+      map<mds_rank_t, mds_load_t>::value_type val(i, mds_load_t(ceph_clock_now(g_ceph_context)));
+      std::pair < map<mds_rank_t, mds_load_t>::iterator, bool > r(mds_load.insert(val));
+      mds_load_t &load(r.first->second);
+      dout(0) << "-- mds." << i << " has cpu load = " << load.cpu_load_avg << dendl;
+      if (load.cpu_load_avg > value) {
+
       }
     }
   }
+  else if (!threshold.compare("memory"))
+    dout(0) << "spilling and filling when the memory pressure is >= " << value << " bytes" << dendl;
+  else if (!threshold.compare("inodes"))
+    dout(0) << "spilling and filling when there are more than " << value << " inodes" << dendl;
+  else
+    dout(0) << "invalid threshold setting; I need to know how to map to these internal variables" << dendl;
 }
-
-
-void MDBalancer::custom_migration() {
-    // remove the balancer... for now!
-    string migrations_str = g_conf->mds_force_migrate.c_str();
-    string kvpair;
-    size_t colon, comma;
-    map<string, mds_rank_t> migrations;
-
-    // parse out where to send directories
-    while ((comma = migrations_str.find(",")) != string::npos) {   
-      kvpair = migrations_str.substr(0, comma);
-      colon = migrations_str.find(":");
-      if (colon == string::npos) {
-        dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
-        return;
-      }
-      migrations.insert(pair<string, mds_rank_t>(kvpair.substr(0, colon), mds_rank_t(atoi(kvpair.substr(colon + 1).c_str()))));
-      migrations_str = migrations_str.substr(comma + 1);
-    }
-    kvpair = migrations_str.substr(0, migrations_str.length());
-    colon = migrations_str.find(":");
-    if (colon == string::npos) {
-      dout(0) << "invalid conf: key-value pair (" << kvpair << ") doesn't have a colon (:)" << dendl;
-      return;
-    }
-    migrations.insert(pair<string, mds_rank_t>(kvpair.substr(0, colon), mds_rank_t(atoi(kvpair.substr(colon + 1).c_str()))));
-
-    // do I own any of the dirs?
-    set<CDir*> subtrees;
-    mds->mdcache->get_fullauth_subtrees(subtrees);
-    for (set<CDir*>::iterator it = subtrees.begin();
-         it != subtrees.end();
-         ++it)
-      force_migrate(*it, migrations);
-}
-
-
 
 void MDBalancer::prep_rebalance(int beat)
 {
@@ -527,10 +476,11 @@ void MDBalancer::prep_rebalance(int beat)
 	 i != up_mds.end();
 	 ++i)
       my_targets[*i] = 0.0;
-  } 
-  else if (g_conf->mds_force_migrate != "") {
-    custom_migration();
-  } else {
+  } else if (g_conf->mds_when != "") {
+    fill_and_spill();
+  }
+  else {
+    // panic and spread
     int cluster_size = mds->get_mds_map()->get_num_in_mds();
     mds_rank_t whoami = mds->get_nodeid();
     rebalance_time = ceph_clock_now(g_ceph_context);
@@ -551,7 +501,7 @@ void MDBalancer::prep_rebalance(int beat)
       double metald = m->second.auth.meta_load(rebalance_time, mds->mdcache->decayrate);
       double mdsld = m->second.mds_load();
       load_fac = metald / mdsld;
-      dout(7) << " load_fac is " << load_fac
+      dout(0) << " load_fac is " << load_fac
 	      << " <- " << m->second.auth << " " << metald
 	      << " / " << mdsld
 	      << dendl;
@@ -567,7 +517,8 @@ void MDBalancer::prep_rebalance(int beat)
       double l = load.mds_load() * load_fac;
       mds_meta_load[i] = l;
 
-      if (whoami == 0)
+      // MSEVILLA
+      //if (whoami == 0)
 	dout(0) << "  mds." << i
 		<< " " << load
 		<< " = " << load.mds_load()

@@ -10,13 +10,10 @@ set style fill pattern 1 border
 set xdata time
 set timefmt '%H:%M:%S'
 set format x '%H:%M:%S'
-set font "Helvetica, 24"
-set xtics font "Helvetica, 14"
-set ytics font "Helvetica, 14"
 
 # plot 1: thruput request balancer
-set key top right font "Helvetica, 24"
-#set xrange['14:31:23':'14:41:23']
+set key top right 
+set xrange['14:31:23':'14:41:23']
 set xtics("2" '14:33:23', "4" '14:35:23', "6" '14:37:23', "8" '14:39:23', "10" '14:41:23')
 set ylabel "Metadata req/s" 
 set format y "%.0s%c"

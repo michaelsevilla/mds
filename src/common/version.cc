@@ -35,7 +35,7 @@ const char *git_version_to_str(void)
 std::string const pretty_version_to_str(void)
 {
   std::ostringstream oss;
-  oss << "MSEVILLA's ceph version " << CEPH_GIT_NICE_VER << " ("
-      << STRINGIFY(CEPH_GIT_VER) << "): force migrations; untested.";
+  oss << "ceph version " << CEPH_GIT_NICE_VER << " ("
+      << STRINGIFY(CEPH_GIT_VER) << "). Client: send_request really logging. MDS: status, all migrate debugging.";
   return oss.str();
 }

@@ -2,6 +2,7 @@
 import os, sys, subprocess, time
 
 types = ['MDSs', 'MONs', 'OSDs', 'CLIENTs']
+live = False
 
 def whoops(error):
     print "Whoops. " + error
@@ -33,10 +34,10 @@ def run(command):
 
 # pull out the server IDs from the config file
 def parse_config():
-    if len(sys.argv) < 2: 
+    if len(sys.argv) < 3: 
         config = "/user/msevilla/ceph-deploy/config.sh"
     else: 
-        config = sys.argv[1]
+        config = sys.argv[2]
 
     try:
         f = open(config, 'r')
@@ -87,16 +88,19 @@ def get_names(vals, array):
 
 # construct the filename based on the metric
 def get_fname(metric, daemon, component=None):
+    prefix = "./"
+    if live:
+        prefix = "/mnt/issdm-" + daemon + "/ceph-logs/"
     if metric == 'utilization' or metric == '1':
         # pull out the file name
-        files = os.listdir("./cpu")
+        files = os.listdir(prefix + "cpu")
         for name in files:
             if "issdm-" in name and "-" + daemon + "-" in name and "tab" in name:
-                return "./cpu/" + name
+                return prefix + "cpu/" + name
     elif metric == 'perfcounter' or metric == '2':
-        return "./perf/" + component + "-issdm-" + daemon + ".timing"
+        return prefix + "perf/" + component + "-issdm-" + daemon + ".timing"
     elif metric == 'performance' or metric == '3':
-        return "./perf/replyc_issdm-" + daemon 
+        return prefix + "perf/replyc_issdm-" + daemon 
 
 def tailplot(f, s, d, metric, component=None):
     filename = get_fname(metric, d, component)
@@ -128,7 +132,7 @@ def graph(d):
     # pull out the value to graph from the options; options are listed with helper scripts
     if metric == 'utilization' or metric == '1':
         filename = get_fname(metric, daemon)
-        options = run("parse_collectl.py " + filename)
+        options = run("parse_collectl.py " + str(filename))
     elif metric == 'perfcounter' or metric == '2':
         options = run("parse_perf.py ./perf/" + daemon + "-0 component component")
         component = raw_input_exit("Pick component: " + str(options) + "\n")
@@ -196,4 +200,10 @@ def main():
     elif action == 'graph' or action == '2': 
         graph(d)
 
+
+
+if len(sys.argv) > 1:
+    if sys.argv[1] == 'live':
+        live = True
+        print "Running live..."
 main()
