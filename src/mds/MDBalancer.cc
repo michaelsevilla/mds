@@ -421,8 +421,7 @@ void MDBalancer::do_fragmenting()
 
 // load fac enhances subtrees the load of subtrees (arg, this is a heuristic)
 // TODO: calculate these subtree loads in place... (don't create pop_subtrees)
-int MDBalancer::subtree_loads(CInode *in, double load_fac ) {
-  pop_subtrees.clear();
+double MDBalancer::subtree_loads(CInode *in) {
   double sum = 0;
   if (in != NULL) {
     if (in->is_dir()) {
@@ -439,21 +438,23 @@ int MDBalancer::subtree_loads(CInode *in, double load_fac ) {
           // use Sage's heuristic here
           dirfrag_load_vec_t load_vec= dir->pop_auth_subtree;
           double load = load_vec.meta_load();
-          pop_subtrees.push_back(make_pair(load, dir));
-          sum += load; 
           string path;
           dir->get_inode()->make_path_string_projected(path);
-          dout(5) << " path=" << path << " load=" << load << "loadvec="
+          dout(3) << " path=" << path << " load=" << load << " loadvec="
                   << " < " << load_vec.get(META_POP_IRD).get_last()
                   << " "   << load_vec.get(META_POP_IWR).get_last()
                   << " "   << load_vec.get(META_POP_READDIR).get_last()
                   << " "   << load_vec.get(META_POP_FETCH).get_last()
                   << " "   << load_vec.get(META_POP_STORE).get_last()
                   << " > " << dendl;
+          double subtree_sum = 0;
           for (CDir::map_t::iterator direntry_it = dir->begin();
                direntry_it != dir->end();
                ++direntry_it)
-            return sum + subtree_loads(direntry_it->second->get_linkage()->get_inode(), 2*load_fac);
+            subtree_sum += subtree_loads(direntry_it->second->get_linkage()->get_inode());
+          double parent = load - subtree_sum;
+          sum += parent + subtree_sum;
+          pop_subtrees.push_back(make_pair(parent, dir));
         }
       }
     }
@@ -489,12 +490,12 @@ void MDBalancer::fill_and_spill()
   else if (!threshold_name.compare("cpu")) {
     int cluster_size = mds->get_mds_map()->get_num_in_mds();
     mds_rank_t whoami = mds->get_nodeid();
-    dout(0) << "spilling and filling when the CPU utilization is >= " << threshold_value << "%" << dendl;
     for (mds_rank_t i=mds_rank_t(0); i < mds_rank_t(cluster_size); i++) {
       map<mds_rank_t, mds_load_t>::value_type val(i, mds_load_t(ceph_clock_now(g_ceph_context)));
       std::pair < map<mds_rank_t, mds_load_t>::iterator, bool > r(mds_load.insert(val));
       mds_load_t &load(r.first->second);
       if (whoami == i) {
+        dout(0) << "spilling and filling when the CPU utilization is >= " << threshold_value << "%, now I have " << load.cpu_load_avg << dendl;
         if (load.cpu_load_avg > threshold_value) {
           dout(0) << " mds." << i << " (e.g., me) is overloaded with cpu load = " << load.cpu_load_avg << dendl;
           // send all new loads to next mds
@@ -507,29 +508,34 @@ void MDBalancer::fill_and_spill()
           
           // 1. get load of all directories
           set<CDir*> subtrees;
+          pop_subtrees.clear();
           mds->mdcache->get_fullauth_subtrees(subtrees);
           for (set<CDir*>::iterator it = subtrees.begin();
                it != subtrees.end();
                ++it) {
             CDir *dir = *it;
-            int sum = subtree_loads(dir->get_inode(), 1);
+            int sum = subtree_loads(dir->get_inode());
 
             // 2. streams = active directories (select leaves before parents)
             double split = sum / (double) pop_subtrees.size();
-            dout(5) << " split=" << split << " =" << sum << "/" << pop_subtrees.size() << dendl;
+            dout(3) << " split=" << split << " = " << sum << "/" << pop_subtrees.size() << dendl;
             sort (pop_subtrees.begin(), pop_subtrees.end());
 
-            vector<pair<double, CDir*> >::iterator pointer = pop_subtrees.end();
+            // TODO: make this count from the back
             int streams = 0;
-            while (pointer->first >= split) {
+            for (vector<pair<double, CDir*> >::iterator pop_subtree_it = pop_subtrees.begin();
+                 pop_subtree_it != pop_subtrees.end();
+                 ++pop_subtree_it) {
+              string path;
+              if (pop_subtree_it->first >= split) 
                 streams++;
-                it--;
+              pop_subtree_it->second->get_inode()->make_path_string_projected(path);
+              dout(3) << " load=" << pop_subtree_it->first << " path=" << path << dendl;
             }
-              //pair<double, CDir*> p = *it;
             
             // 3. stream_cost = total / streams
             double stream_cost = load.cpu_load_avg / streams;
-            dout(5) << " stream_cost=" << stream_cost << " =" << load.cpu_load_avg << "/" << streams << dendl;
+            dout(3) << " streams=" << streams << " stream_cost=" << stream_cost << " = " << load.cpu_load_avg << "/" << streams << dendl;
 
             // 4. target_streams = threshold / stream_cost
             int target_streams = floor(threshold_value / stream_cost);

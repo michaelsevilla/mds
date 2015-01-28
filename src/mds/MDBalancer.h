@@ -97,7 +97,7 @@ public:
   /*check if the monitor has recorded the current export targets;
     if it has then do the actual export. Otherwise send off our
     export targets message again*/
-  int subtree_loads(CInode *in, double load_fac);
+  double subtree_loads(CInode *in);
   void fill_and_spill();
   void try_rebalance();
   void find_exports(CDir *dir, 
