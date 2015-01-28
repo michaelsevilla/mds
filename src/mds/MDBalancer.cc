@@ -419,6 +419,48 @@ void MDBalancer::do_fragmenting()
   }
 }
 
+// load fac enhances subtrees the load of subtrees (arg, this is a heuristic)
+// TODO: calculate these subtree loads in place... (don't create pop_subtrees)
+int MDBalancer::subtree_loads(CInode *in, double load_fac ) {
+  pop_subtrees.clear();
+  double sum = 0;
+  if (in != NULL) {
+    if (in->is_dir()) {
+      list<CDir*> dirfrags;
+      in->get_dirfrags(dirfrags);
+      for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
+           dirfrags_it != dirfrags.end();
+           ++dirfrags_it) {
+        CDir *dir = *dirfrags_it;
+        string path;
+        dir->get_inode()->make_path_string_projected(path);
+        if (path.find("~") != 0) {
+          // TODO: Are we sure that we'll hit every directory once (and only once)?
+          // use Sage's heuristic here
+          dirfrag_load_vec_t load_vec= dir->pop_auth_subtree;
+          double load = load_vec.meta_load();
+          pop_subtrees.push_back(make_pair(load, dir));
+          sum += load; 
+          string path;
+          dir->get_inode()->make_path_string_projected(path);
+          dout(5) << " path=" << path << " load=" << load << "loadvec="
+                  << " < " << load_vec.get(META_POP_IRD).get_last()
+                  << " "   << load_vec.get(META_POP_IWR).get_last()
+                  << " "   << load_vec.get(META_POP_READDIR).get_last()
+                  << " "   << load_vec.get(META_POP_FETCH).get_last()
+                  << " "   << load_vec.get(META_POP_STORE).get_last()
+                  << " > " << dendl;
+          for (CDir::map_t::iterator direntry_it = dir->begin();
+               direntry_it != dir->end();
+               ++direntry_it)
+            return sum + subtree_loads(direntry_it->second->get_linkage()->get_inode(), 2*load_fac);
+        }
+      }
+    }
+  } 
+  return sum;
+}
+
 /* MSEVILLA
  * input: g_conf->mds_when
  * options: 
@@ -430,7 +472,8 @@ void MDBalancer::do_fragmenting()
 void MDBalancer::fill_and_spill() 
 {
   string when = g_conf->mds_when.c_str();
-  string threshold, value;
+  string threshold_name;
+  double threshold_value;
   size_t colon;
 
   colon = when.find(":");
@@ -438,29 +481,78 @@ void MDBalancer::fill_and_spill()
     dout(0) << "invalid conf: key-value pair (" << when << ") doesn't have a colon (:)" << dendl;
     return;
   }
-  threshold = when.substr(0, colon);
-  value = when.substr(colon + 1);
+  threshold_name = when.substr(0, colon);
+  threshold_value = atof(when.substr(colon + 1).c_str());
 
-  if (!threshold.compare("client"))
-    dout(0) << "spilling and filling when there are >= " << value << " clients" << dendl;
-  else if (!threshold.compare("cpu")) {
+  if (!threshold_name.compare("client"))
+    dout(0) << "spilling and filling when there are >= " << threshold_value << " clients" << dendl;
+  else if (!threshold_name.compare("cpu")) {
     int cluster_size = mds->get_mds_map()->get_num_in_mds();
     mds_rank_t whoami = mds->get_nodeid();
-    dout(0) << "spilling and filling when the CPU utilization is >= " << value << "%" << dendl;
+    dout(0) << "spilling and filling when the CPU utilization is >= " << threshold_value << "%" << dendl;
     for (mds_rank_t i=mds_rank_t(0); i < mds_rank_t(cluster_size); i++) {
       map<mds_rank_t, mds_load_t>::value_type val(i, mds_load_t(ceph_clock_now(g_ceph_context)));
       std::pair < map<mds_rank_t, mds_load_t>::iterator, bool > r(mds_load.insert(val));
       mds_load_t &load(r.first->second);
-      dout(0) << "-- mds." << i << " has cpu load = " << load.cpu_load_avg << dendl;
-      if (load.cpu_load_avg > value) {
+      if (whoami == i) {
+        if (load.cpu_load_avg > threshold_value) {
+          dout(0) << " mds." << i << " (e.g., me) is overloaded with cpu load = " << load.cpu_load_avg << dendl;
+          // send all new loads to next mds
+          // algorithm: figure out how many streams there are
+          //   1. get load of all the directories
+          //   2. streams = active directories (select leaves before parents)
+          //   3. stream_cost = total / streams
+          //   4. target_streams = threshold / stream
+          //   5. send off (streams - target)
+          
+          // 1. get load of all directories
+          set<CDir*> subtrees;
+          mds->mdcache->get_fullauth_subtrees(subtrees);
+          for (set<CDir*>::iterator it = subtrees.begin();
+               it != subtrees.end();
+               ++it) {
+            CDir *dir = *it;
+            int sum = subtree_loads(dir->get_inode(), 1);
 
+            // 2. streams = active directories (select leaves before parents)
+            double split = sum / (double) pop_subtrees.size();
+            dout(5) << " split=" << split << " =" << sum << "/" << pop_subtrees.size() << dendl;
+            sort (pop_subtrees.begin(), pop_subtrees.end());
+
+            vector<pair<double, CDir*> >::iterator pointer = pop_subtrees.end();
+            int streams = 0;
+            while (pointer->first >= split) {
+                streams++;
+                it--;
+            }
+              //pair<double, CDir*> p = *it;
+            
+            // 3. stream_cost = total / streams
+            double stream_cost = load.cpu_load_avg / streams;
+            dout(5) << " stream_cost=" << stream_cost << " =" << load.cpu_load_avg << "/" << streams << dendl;
+
+            // 4. target_streams = threshold / stream_cost
+            int target_streams = floor(threshold_value / stream_cost);
+
+            // 5. send off (streams - target)
+            int send_streams = streams - target_streams;
+            dout(5) << " target_streams=" << target_streams << " send_streams=" << send_streams << dendl;
+            
+            //for (int i = 0; i < send_streams; i++) {
+            //  mds->mdcache->show_subtrees(0);
+            //  mds-mdcache->migrator->export_dir_nicely(target_mds + 1);
+            //
+
+            //}
+          }
+        }
       }
     }
   }
-  else if (!threshold.compare("memory"))
-    dout(0) << "spilling and filling when the memory pressure is >= " << value << " bytes" << dendl;
-  else if (!threshold.compare("inodes"))
-    dout(0) << "spilling and filling when there are more than " << value << " inodes" << dendl;
+  else if (!threshold_name.compare("memory"))
+    dout(0) << "spilling and filling when the memory pressure is >= " << threshold_value << " bytes" << dendl;
+  else if (!threshold_name.compare("inodes"))
+    dout(0) << "spilling and filling when there are more than " << threshold_value << " inodes" << dendl;
   else
     dout(0) << "invalid threshold setting; I need to know how to map to these internal variables" << dendl;
 }

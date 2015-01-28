@@ -53,6 +53,7 @@ class MDBalancer {
   map<mds_rank_t, mds_load_t>  mds_load;
   map<mds_rank_t, float>       mds_meta_load;
   map<mds_rank_t, map<mds_rank_t, float> > mds_import_map;
+  vector<pair<double, CDir *> > pop_subtrees;
 
   // per-epoch state
   double          my_load, target_load;
@@ -96,6 +97,7 @@ public:
   /*check if the monitor has recorded the current export targets;
     if it has then do the actual export. Otherwise send off our
     export targets message again*/
+  int subtree_loads(CInode *in, double load_fac);
   void fill_and_spill();
   void try_rebalance();
   void find_exports(CDir *dir, 
