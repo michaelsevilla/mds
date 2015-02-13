@@ -1358,10 +1358,7 @@ void Server::dispatch_client_request(MDRequestRef& mdr)
   switch (req->get_op()) {
   case CEPH_MDS_OP_LOOKUPHASH:
   case CEPH_MDS_OP_LOOKUPINO:
-    mds->logger->inc(l_mds_lookupino);
     handle_client_lookup_ino(mdr, false, false);
-    utime_t lat = ceph_clock_now(g_ceph_context) - mdr->client_request->get_recv_stamp
-    mds->logger->tinc(l_mds_reply_lookupino, lat);
     break;
   case CEPH_MDS_OP_LOOKUPPARENT:
     handle_client_lookup_ino(mdr, true, false);
@@ -6812,7 +6809,7 @@ void Server::handle_slave_rename_prep(MDRequestRef& mdr)
     }
 
     if (reply_witness) {
-      assert(srcdnrep.size());
+      assert(!srcdnrep.empty());
       MMDSSlaveRequest *reply = new MMDSSlaveRequest(mdr->reqid, mdr->attempt,
 						     MMDSSlaveRequest::OP_RENAMEPREPACK);
       reply->witnesses.swap(srcdnrep);

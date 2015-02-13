@@ -91,13 +91,13 @@ MDS::MDS(const std::string &n, Messenger *m, MonClient *mc) :
   hb(NULL),
   beacon(m->cct, mc, n),
   authorize_handler_cluster_registry(new AuthAuthorizeHandlerRegistry(m->cct,
-								      m->cct->_conf->auth_supported.length() ?
-								      m->cct->_conf->auth_supported :
-								      m->cct->_conf->auth_cluster_required)),
+								      m->cct->_conf->auth_supported.empty() ?
+								      m->cct->_conf->auth_cluster_required :
+								      m->cct->_conf->auth_supported)),
   authorize_handler_service_registry(new AuthAuthorizeHandlerRegistry(m->cct,
-								      m->cct->_conf->auth_supported.length() ?
-								      m->cct->_conf->auth_supported :
-								      m->cct->_conf->auth_service_required)),
+								      m->cct->_conf->auth_supported.empty() ?
+								      m->cct->_conf->auth_service_required :
+								      m->cct->_conf->auth_supported)),
   name(n),
   whoami(MDS_RANK_NONE), incarnation(0),
   standby_for_rank(MDSMap::MDS_NO_STANDBY_PREF),
@@ -704,6 +704,7 @@ void MDS::create_logger()
 
   mdlog->create_logger();
   server->create_logger();
+  mdcache->register_perfcounters();
 }
 
 
@@ -1768,6 +1769,10 @@ void MDS::boot_create()
 
   mdcache->init_layouts();
 
+  snapserver->set_rank(whoami);
+  inotable->set_rank(whoami);
+  sessionmap.set_rank(whoami);
+
   // start with a fresh journal
   dout(10) << "boot_create creating fresh journal" << dendl;
   mdlog->create(fin.new_sub());
@@ -1849,9 +1854,11 @@ void MDS::boot_start(BootStep step, int r)
         MDSGatherBuilder gather(g_ceph_context,
             new C_MDS_BootStart(this, MDS_BOOT_OPEN_ROOT));
         dout(2) << "boot_start " << step << ": opening inotable" << dendl;
+        inotable->set_rank(whoami);
         inotable->load(gather.new_sub());
 
         dout(2) << "boot_start " << step << ": opening sessionmap" << dendl;
+        sessionmap.set_rank(whoami);
         sessionmap.load(gather.new_sub());
 
         dout(2) << "boot_start " << step << ": opening mds log" << dendl;
@@ -1859,6 +1866,7 @@ void MDS::boot_start(BootStep step, int r)
 
         if (mdsmap->get_tableserver() == whoami) {
           dout(2) << "boot_start " << step << ": opening snap table" << dendl;
+          snapserver->set_rank(whoami);
           snapserver->load(gather.new_sub());
         }
 
@@ -2983,7 +2991,8 @@ void MDS::ProgressThread::shutdown()
   stopping = true;
   cond.Signal();
   mds->mds_lock.Unlock();
-  join();
+  if (is_started())
+    join();
   mds->mds_lock.Lock();
 }
 

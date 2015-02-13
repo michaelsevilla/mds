@@ -349,8 +349,7 @@ void MDBalancer::do_fragmenting()
   }
 
   if (!split_queue.empty()) {
-    // MSEVILLA
-    dout(0) << "do_fragmenting " << split_queue.size() << " dirs marked for possible splitting" << dendl;
+    dout(10) << "do_fragmenting " << split_queue.size() << " dirs marked for possible splitting" << dendl;
 
     set<dirfrag_t> q;
     q.swap(split_queue);
@@ -369,8 +368,7 @@ void MDBalancer::do_fragmenting()
   }
 
   if (!merge_queue.empty()) {
-    // MSEVILLA
-    dout(0) << "do_fragmenting " << merge_queue.size() << " dirs marked for possible merging" << dendl;
+    dout(10) << "do_fragmenting " << merge_queue.size() << " dirs marked for possible merging" << dendl;
 
     set<dirfrag_t> q;
     q.swap(merge_queue);
@@ -419,152 +417,72 @@ void MDBalancer::do_fragmenting()
   }
 }
 
-// load fac enhances subtrees the load of subtrees (arg, this is a heuristic)
-// TODO: calculate these subtree loads in place... (don't create pop_subtrees)
-double MDBalancer::subtree_loads(CInode *in) {
-  double sum = 0;
-  if (in != NULL) {
-    if (in->is_dir()) {
-      list<CDir*> dirfrags;
-      in->get_dirfrags(dirfrags);
-      for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
-           dirfrags_it != dirfrags.end();
-           ++dirfrags_it) {
-        CDir *dir = *dirfrags_it;
-        string path;
-        dir->get_inode()->make_path_string_projected(path);
-        if (path.find("~") != 0) {
-          // TODO: Are we sure that we'll hit every directory once (and only once)?
-          // use Sage's heuristic here
-          dirfrag_load_vec_t load_vec= dir->pop_auth_subtree;
-          double load = load_vec.meta_load();
-          string path;
-          dir->get_inode()->make_path_string_projected(path);
-          dout(3) << " path=" << path << " load=" << load << " loadvec="
-                  << " < " << load_vec.get(META_POP_IRD).get_last()
-                  << " "   << load_vec.get(META_POP_IWR).get_last()
-                  << " "   << load_vec.get(META_POP_READDIR).get_last()
-                  << " "   << load_vec.get(META_POP_FETCH).get_last()
-                  << " "   << load_vec.get(META_POP_STORE).get_last()
-                  << " > " << dendl;
-          double subtree_sum = 0;
-          for (CDir::map_t::iterator direntry_it = dir->begin();
-               direntry_it != dir->end();
-               ++direntry_it)
-            subtree_sum += subtree_loads(direntry_it->second->get_linkage()->get_inode());
-          double parent = load - subtree_sum;
-          sum += parent + subtree_sum;
-          pop_subtrees.push_back(make_pair(parent, dir));
-        }
-      }
-    }
-  } 
-  return sum;
-}
 
-/* MSEVILLA
- * input: g_conf->mds_when
- * options: 
- *   clients: # client sessions
- *   cpu: threshold for % of total
- *   memory: threshold for % of total
- *   inodes: # of cached inodes
- */
-void MDBalancer::fill_and_spill() 
-{
-  string when = g_conf->mds_when.c_str();
-  string threshold_name;
-  double threshold_value;
-  size_t colon;
-
-  colon = when.find(":");
-  if (colon == string::npos) {
-    dout(0) << "invalid conf: key-value pair (" << when << ") doesn't have a colon (:)" << dendl;
-    return;
-  }
-  threshold_name = when.substr(0, colon);
-  threshold_value = atof(when.substr(colon + 1).c_str());
-
-  if (!threshold_name.compare("client"))
-    dout(0) << "spilling and filling when there are >= " << threshold_value << " clients" << dendl;
-  else if (!threshold_name.compare("cpu")) {
-    int cluster_size = mds->get_mds_map()->get_num_in_mds();
-    mds_rank_t whoami = mds->get_nodeid();
-    for (mds_rank_t i=mds_rank_t(0); i < mds_rank_t(cluster_size); i++) {
-      map<mds_rank_t, mds_load_t>::value_type val(i, mds_load_t(ceph_clock_now(g_ceph_context)));
-      std::pair < map<mds_rank_t, mds_load_t>::iterator, bool > r(mds_load.insert(val));
-      mds_load_t &load(r.first->second);
-      if (whoami == i) {
-        dout(0) << "spilling and filling when the CPU utilization is >= " << threshold_value << "%, now I have " << load.cpu_load_avg << dendl;
-        if (load.cpu_load_avg > threshold_value) {
-          dout(0) << " mds." << i << " (e.g., me) is overloaded with cpu load = " << load.cpu_load_avg << dendl;
-          // send all new loads to next mds
-          // algorithm: figure out how many streams there are
-          //   1. get load of all the directories
-          //   2. streams = active directories (select leaves before parents)
-          //   3. stream_cost = total / streams
-          //   4. target_streams = threshold / stream
-          //   5. send off (streams - target)
-          
-          // 1. get load of all directories
-          set<CDir*> subtrees;
-          pop_subtrees.clear();
-          mds->mdcache->get_fullauth_subtrees(subtrees);
-          for (set<CDir*>::iterator it = subtrees.begin();
-               it != subtrees.end();
-               ++it) {
-            CDir *dir = *it;
-            int sum = subtree_loads(dir->get_inode());
-
-            // 2. streams = active directories (select leaves before parents)
-            double split = sum / (double) pop_subtrees.size();
-            dout(3) << " split=" << split << " = " << sum << "/" << pop_subtrees.size() << dendl;
-            sort (pop_subtrees.begin(), pop_subtrees.end());
-
-            // TODO: make this count from the back
-            int streams = 0;
-            for (vector<pair<double, CDir*> >::iterator pop_subtree_it = pop_subtrees.begin();
-                 pop_subtree_it != pop_subtrees.end();
-                 ++pop_subtree_it) {
-              string path;
-              if (pop_subtree_it->first >= split) 
-                streams++;
-              pop_subtree_it->second->get_inode()->make_path_string_projected(path);
-              dout(3) << " load=" << pop_subtree_it->first << " path=" << path << dendl;
-            }
-            
-            // 3. stream_cost = total / streams
-            double stream_cost = load.cpu_load_avg / streams;
-            dout(3) << " streams=" << streams << " stream_cost=" << stream_cost << " = " << load.cpu_load_avg << "/" << streams << dendl;
-
-            // 4. target_streams = threshold / stream_cost
-            int target_streams = floor(threshold_value / stream_cost);
-
-            // 5. send off (streams - target)
-            int send_streams = streams - target_streams;
-            dout(5) << " target_streams=" << target_streams << " send_streams=" << send_streams << dendl;
-            
-            //for (int i = 0; i < send_streams; i++) {
-            //  mds->mdcache->show_subtrees(0);
-            //  mds-mdcache->migrator->export_dir_nicely(target_mds + 1);
-            //
-
-            //}
-          }
-        }
-      }
-    }
-  }
-  else if (!threshold_name.compare("memory"))
-    dout(0) << "spilling and filling when the memory pressure is >= " << threshold_value << " bytes" << dendl;
-  else if (!threshold_name.compare("inodes"))
-    dout(0) << "spilling and filling when there are more than " << threshold_value << " inodes" << dendl;
-  else
-    dout(0) << "invalid threshold setting; I need to know how to map to these internal variables" << dendl;
-}
 
 void MDBalancer::prep_rebalance(int beat)
 {
+  const char *log_file = g_conf->log_file.c_str(); 
+  const char *script0 = 
+    "package.path = package.path .. ';/home/msevilla/code/ceph/src/mds/balancers/modules/?.lua;'\n"
+    "require \"MDSParser\"\n"
+    "f = io.open(arg[1], \"a\")\n"
+    "io.output(f)\n"
+    "io.write(string.format(\"  [Lua5.2] made it inside Lua, trying to parse args\\n\"))\n"
+    "whoami, MDSs = MDSParser.parse_args(arg)\n"
+    "io.write(string.format(\"  [Lua5.2] whoami=%d\\n\", whoami))\n"
+    "i=whoami\n"
+    "my_auth_metaload = MDSs[whoami][\"auth\"]\n"
+    "io.close(f)\n"
+    "-- begin MDS_BAL_MDSLOAD --\n"
+    "my_mdsload = "; 
+  const char *script1 =
+    "\n"
+    "-- end   MDS_BAL_MDSLOAD --\n"
+    "scale = my_auth_metaload/my_mdsload\n"
+    "total = 0\n" 
+    "for i=1,#MDSs do\n"
+    "  -- begin MDS_BAL_MDSLOAD --\n"
+    "  load = "; 
+  const char *script2 =
+    "\n"
+    "  -- end   MDS_BAL_MDSLOAD --\n"
+    "  MDSs[i][\"load\"] = load * scale\n"
+    "  total = total + load*scale\n"
+    "end\n"
+    "f = io.open(arg[1], \"a\")\n"
+    "io.output(f)\n"
+    "io.write(string.format(\"  [Lua5.2] total=%d, scale=%f=%f/%f\\n\", total,scale, my_auth_metaload, my_mdsload))\n"
+    "-- begin MDS_BAL_WHEN --\n"
+    "if "; 
+  const char *script3 =
+    "\n"
+    " then \n" 
+    "-- end   MDS_BAL_WHEN --\n"
+    "   io.write(\"  [Lua5.2] migrating because \"%s\" was satisfied!\\n\")\n"
+    "   E = {}; I = {}\n"
+    "   for i=1,#MDSs do\n"
+    "     metaload = MDSs[i][\"load\"]\n"
+    "     if metaload > total / #MDSs then E[i] = metaload\n"
+    "     else I[i] = metaload end\n"
+    "   end\n"
+    " else\n"
+    "   io.write(\"  [Lua5.2] not migrating!\\n\")\n"
+    " end\n"
+    "targets = {}"
+    "for i=1,#MDSs do targets[i] = 0 end\n"
+    "io.close(f)\n"
+    "MDSParser.print_metrics(arg[1], MDSs)\n" 
+    "f = io.open(arg[1], \"a\")\n"
+    "io.output(f)\n"
+    "-- begin MDS_BAL_WHERE --\n";
+  const char *script4 = 
+    "\n"
+    "-- end   MDS_BAL_WHERE --\n"
+    "ret = \"\"\n"
+    "for i=1,#targets do ret = ret..targets[i]..\" \" end\n"
+    "io.close(f)\n"
+    "return ret";
+
   if (g_conf->mds_thrash_exports) {
     //we're going to randomly export to all the mds in the cluster
     my_targets.clear();
@@ -574,168 +492,309 @@ void MDBalancer::prep_rebalance(int beat)
 	 i != up_mds.end();
 	 ++i)
       my_targets[*i] = 0.0;
-  } else if (g_conf->mds_when != "") {
-    fill_and_spill();
+  } 
+  switch (g_conf->mds_bal_design_pattern) {
+  case 0:
+    spill_equally(beat);
+    break;
+  case 1:
+    custom_balancer(log_file, script0, script1, script2, script3, script4); 
+    break;
+  default:
+    dout(1) << "unknown design pattern" << dendl;
+  }
+}
+
+// balancer design patterns: any implementation should inherit from one of these
+void MDBalancer::custom_balancer(const char *log_file, const char *script0,
+                                 const char *script1, const char *script2, 
+                                 const char *script3, const char *script4) 
+{  
+  int index = 1;
+  char ret[LINE_MAX];
+  string mdsload = g_conf->mds_bal_mdsload; 
+  string when = g_conf->mds_bal_when; 
+  string where = g_conf->mds_bal_where; 
+  char script[strlen(script0) +
+              strlen(g_conf->mds_bal_mdsload.c_str()) +
+              strlen(script1) + 
+              strlen(g_conf->mds_bal_mdsload.c_str()) + 
+              strlen(script2) + 
+              strlen(g_conf->mds_bal_when.c_str()) +
+              strlen(script3) +
+              strlen(g_conf->mds_bal_where.c_str()) +
+              strlen(script4)];
+  strcpy(script, script0);
+  replace(mdsload.begin(), mdsload.end(), '_', ' ');
+  strcat(script, mdsload.c_str());
+  strcat(script, script1);
+  strcat(script, mdsload.c_str());
+  strcat(script, script2);
+  replace(when.begin(), when.end(), '_', ' ');
+  strcat(script, when.c_str());
+  strcat(script, script3);
+  replace(where.begin(), where.end(), '_', ' ');
+  strcat(script, where.c_str());
+  strcat(script, script4);
+
+  mds_rank_t whoami = mds->get_nodeid();
+  int cluster_size = mds->get_mds_map()->get_num_in_mds();
+
+  if (!mdsload.compare("") || !when.compare("") || !where.compare("")) {
+    dout(0) << "custom_balancer: missing mdsload/when/where script, not making migration decisions" << dendl;
+    return;
+  }
+  dout(5) << "- mdsload = " << mdsload << dendl;
+  dout(5) << "- when    = " << when << dendl;
+  dout(5) << "- where   = " << where << dendl;
+ 
+  dout(0) << "transferring control to Lua, using " << log_file << dendl;
+  dout(10) << script << dendl;;
+  lua_State *L = luaL_newstate();
+  luaL_openlibs(L);
+  lua_newtable(L);
+ 
+  // Pass the debug file to the Lua balancer
+  dout(5) << "pushing the log file" << dendl;
+  lua_pushnumber(L, index++);
+  lua_pushstring(L, log_file);
+  lua_settable(L, -3);
+
+  // Pass whoami to the Lua balancer
+  dout(5) << "pushing whoami" << dendl;
+  lua_pushnumber(L, index++);
+  lua_pushnumber(L, 1);
+  lua_settable(L, -3);
+ 
+  // Pass per-MDS sextuplets to Lua balancer
+  for (mds_rank_t i=mds_rank_t(0); i < mds_rank_t(cluster_size); i++) {
+    map<mds_rank_t, mds_load_t>::value_type val(i, mds_load_t(ceph_clock_now(g_ceph_context)));
+    std::pair < map<mds_rank_t, mds_load_t>::iterator, bool > r(mds_load.insert(val));
+    mds_load_t &load(r.first->second);
+  
+    dout(10) << "mds " << i << " has load < auth all req q cpu mem >:  "
+            << load.auth.meta_load() << " "
+            << load.all.meta_load() << " "
+            << load.req_rate << " "
+            << load.queue_len << " " 
+            << load.cpu_load_avg << " "
+            << "-1"
+            << dendl;
+    dout(10) << "pushing load.auth.meta_load(): " << load.auth.meta_load() << dendl; 
+    lua_pushnumber(L, index++);                 // index of auth
+    lua_pushnumber(L, load.auth.meta_load());   // value of auth
+    lua_settable(L, -3);                        // pop 2; t[index] = val
+
+    dout(10) << "pushing load.all.meta_load(): " << load.all.meta_load() << dendl;  
+    lua_pushnumber(L, index++);
+    lua_pushnumber(L, load.all.meta_load());
+    lua_settable(L, -3);
+  
+    dout(10) << "pushing load.req_rate: " << load.req_rate << dendl;
+    lua_pushnumber(L, index++);
+    lua_pushnumber(L, load.req_rate);
+    lua_settable(L, -3);
+  
+    dout(10) << "pushing load.queue_len: " << load.queue_len << dendl;
+    lua_pushnumber(L, index++);
+    lua_pushnumber(L, load.queue_len);
+    lua_settable(L, -3);
+  
+    dout(10) << "pushing load.cpu_load_avg: " << load.cpu_load_avg << dendl;
+    lua_pushnumber(L, index++);
+    lua_pushnumber(L, load.cpu_load_avg);
+    lua_settable(L, -3);
+
+    dout(10) << "pushing load.mem: " << "-1" << dendl;
+    lua_pushnumber(L, index++);
+    lua_pushnumber(L, -1);
+    lua_settable(L, -3);
+  }
+  
+  lua_setglobal(L, "arg");
+  dout(5) << " kicking control off to Lua" << dendl;
+  if (luaL_dostring(L, script) > 0) {
+    dout(0) << " script failed: " << lua_tostring(L, lua_gettop(L)) << dendl;
+    char *start = script;
+    size_t nchars = 0;
+    size_t lines = 1;
+    for (size_t i = 0; i < strlen(script); i++) {
+      nchars++;
+      if (script[i] == '\n') {
+        char line[LINE_MAX] = "";
+        script[i] = ' ';
+        strncpy(line, start, nchars);
+        dout(0) << lines << ". " << line << dendl;
+        start = start + nchars;
+        nchars = 0;
+        lines++;
+      }
+    }
   }
   else {
-    // panic and spread
-    int cluster_size = mds->get_mds_map()->get_num_in_mds();
-    mds_rank_t whoami = mds->get_nodeid();
-    rebalance_time = ceph_clock_now(g_ceph_context);
+    strcpy(ret, lua_tostring(L, lua_gettop(L)));
+    dout(5) << " done executing, received: " << ret << dendl; 
+  }
+  lua_close(L);
+}
 
-    // reset
-    my_targets.clear();
-    imported.clear();
-    exported.clear();
+void MDBalancer::spill_equally(int beat)
+{
+  int cluster_size = mds->get_mds_map()->get_num_in_mds();
+  mds_rank_t whoami = mds->get_nodeid();
+  rebalance_time = ceph_clock_now(g_ceph_context);
 
-    dout(5) << " prep_rebalance: cluster loads are" << dendl;
+  // reset
+  my_targets.clear();
+  imported.clear();
+  exported.clear();
 
-    mds->mdcache->migrator->clear_export_queue();
+  dout(5) << " spill_equally: cluster loads are" << dendl;
 
-    // rescale!  turn my mds_load back into meta_load units
-    double load_fac = 1.0;
-    map<mds_rank_t, mds_load_t>::iterator m = mds_load.find(whoami);
-    if ((m != mds_load.end()) && (m->second.mds_load() > 0)) {
-      double metald = m->second.auth.meta_load(rebalance_time, mds->mdcache->decayrate);
-      double mdsld = m->second.mds_load();
-      load_fac = metald / mdsld;
-      dout(0) << " load_fac is " << load_fac
-	      << " <- " << m->second.auth << " " << metald
-	      << " / " << mdsld
-	      << dendl;
+  mds->mdcache->migrator->clear_export_queue();
+
+  // rescale!  turn my mds_load back into meta_load units
+  double load_fac = 1.0;
+  map<mds_rank_t, mds_load_t>::iterator m = mds_load.find(whoami);
+  if ((m != mds_load.end()) && (m->second.mds_load() > 0)) {
+    double metald = m->second.auth.meta_load(rebalance_time, mds->mdcache->decayrate);
+    double mdsld = m->second.mds_load();
+    load_fac = metald / mdsld;
+    dout(7) << " load_fac is " << load_fac
+            << " <- " << m->second.auth << " " << metald
+            << " / " << mdsld
+            << dendl;
+  }
+
+  double total_load = 0;
+  multimap<double,mds_rank_t> load_map;
+  for (mds_rank_t i=mds_rank_t(0); i < mds_rank_t(cluster_size); i++) {
+    map<mds_rank_t, mds_load_t>::value_type val(i, mds_load_t(ceph_clock_now(g_ceph_context)));
+    std::pair < map<mds_rank_t, mds_load_t>::iterator, bool > r(mds_load.insert(val));
+    mds_load_t &load(r.first->second);
+
+    double l = load.mds_load() * load_fac;
+    mds_meta_load[i] = l;
+
+    if (whoami == 0)
+      dout(0) << "  mds." << i
+      	<< " " << load
+      	<< " = " << load.mds_load()
+      	<< " ~ " << l << dendl;
+
+    if (whoami == i) my_load = l;
+    total_load += l;
+
+    load_map.insert(pair<double,mds_rank_t>( l, i ));
+  }
+
+  // target load
+  target_load = total_load / (double)cluster_size;
+  dout(5) << "splill equally:  my load " << my_load
+          << "   target " << target_load
+          << "   total " << total_load
+          << dendl;
+
+  // under or over?
+  if (my_load < target_load * (1.0 + g_conf->mds_bal_min_rebalance)) {
+    dout(5) << "  i am underloaded or barely overloaded, doing nothing." << dendl;
+    last_epoch_under = beat_epoch;
+    show_imports();
+    return;
+  }
+
+  last_epoch_over = beat_epoch;
+
+  // am i over long enough?
+  if (last_epoch_under && beat_epoch - last_epoch_under < 2) {
+    dout(5) << "  i am overloaded, but only for " << (beat_epoch - last_epoch_under) << " epochs" << dendl;
+    return;
+  }
+
+  dout(5) << "  i am sufficiently overloaded" << dendl;
+
+
+  // first separate exporters and importers
+  multimap<double,mds_rank_t> importers;
+  multimap<double,mds_rank_t> exporters;
+  set<mds_rank_t>             importer_set;
+  set<mds_rank_t>             exporter_set;
+
+  for (multimap<double,mds_rank_t>::iterator it = load_map.begin();
+       it != load_map.end();
+       ++it) {
+    if (it->first < target_load) {
+      dout(15) << "   mds." << it->second << " is importer" << dendl;
+      importers.insert(pair<double,mds_rank_t>(it->first,it->second));
+      importer_set.insert(it->second);
+    } else {
+      dout(15) << "   mds." << it->second << " is exporter" << dendl;
+      exporters.insert(pair<double,mds_rank_t>(it->first,it->second));
+      exporter_set.insert(it->second);
     }
-
-    double total_load = 0;
-    multimap<double,mds_rank_t> load_map;
-    for (mds_rank_t i=mds_rank_t(0); i < mds_rank_t(cluster_size); i++) {
-      map<mds_rank_t, mds_load_t>::value_type val(i, mds_load_t(ceph_clock_now(g_ceph_context)));
-      std::pair < map<mds_rank_t, mds_load_t>::iterator, bool > r(mds_load.insert(val));
-      mds_load_t &load(r.first->second);
-
-      double l = load.mds_load() * load_fac;
-      mds_meta_load[i] = l;
-
-      // MSEVILLA
-      //if (whoami == 0)
-	dout(0) << "  mds." << i
-		<< " " << load
-		<< " = " << load.mds_load()
-		<< " ~ " << l << dendl;
-
-      if (whoami == i) my_load = l;
-      total_load += l;
-
-      load_map.insert(pair<double,mds_rank_t>( l, i ));
-    }
-
-    // target load
-    target_load = total_load / (double)cluster_size;
-    dout(5) << "prep_rebalance:  my load " << my_load
-	    << "   target " << target_load
-	    << "   total " << total_load
-	    << dendl;
-
-    // under or over?
-    if (my_load < target_load * (1.0 + g_conf->mds_bal_min_rebalance)) {
-      dout(5) << "  i am underloaded or barely overloaded, doing nothing." << dendl;
-      last_epoch_under = beat_epoch;
-      show_imports();
-      return;
-    }
-
-    last_epoch_over = beat_epoch;
-
-    // am i over long enough?
-    if (last_epoch_under && beat_epoch - last_epoch_under < 2) {
-      dout(5) << "  i am overloaded, but only for " << (beat_epoch - last_epoch_under) << " epochs" << dendl;
-      return;
-    }
-
-    dout(5) << "  i am sufficiently overloaded" << dendl;
+  }
 
 
-    // first separate exporters and importers
-    multimap<double,mds_rank_t> importers;
-    multimap<double,mds_rank_t> exporters;
-    set<mds_rank_t>             importer_set;
-    set<mds_rank_t>             exporter_set;
+  // determine load transfer mapping
 
-    for (multimap<double,mds_rank_t>::iterator it = load_map.begin();
-	 it != load_map.end();
-	 ++it) {
-      if (it->first < target_load) {
-	dout(15) << "   mds." << it->second << " is importer" << dendl;
-	importers.insert(pair<double,mds_rank_t>(it->first,it->second));
-	importer_set.insert(it->second);
-      } else {
-	dout(15) << "   mds." << it->second << " is exporter" << dendl;
-	exporters.insert(pair<double,mds_rank_t>(it->first,it->second));
-	exporter_set.insert(it->second);
+  if (true) {
+    // analyze import_map; do any matches i can
+
+    dout(15) << "  matching exporters to import sources" << dendl;
+
+    // big -> small exporters
+    for (multimap<double,mds_rank_t>::reverse_iterator ex = exporters.rbegin();
+         ex != exporters.rend();
+         ++ex) {
+      double maxex = get_maxex(ex->second);
+      if (maxex <= .001) continue;
+
+      // check importers. for now, just in arbitrary order (no intelligent matching).
+      for (map<mds_rank_t, float>::iterator im = mds_import_map[ex->second].begin();
+           im != mds_import_map[ex->second].end();
+           ++im) {
+        double maxim = get_maxim(im->first);
+        if (maxim <= .001) continue;
+        try_match(ex->second, maxex,
+      	    im->first, maxim);
+        if (maxex <= .001) break;
       }
     }
+  }
 
 
-    // determine load transfer mapping
-
-    if (true) {
-      // analyze import_map; do any matches i can
-
-      dout(15) << "  matching exporters to import sources" << dendl;
-
-      // big -> small exporters
-      for (multimap<double,mds_rank_t>::reverse_iterator ex = exporters.rbegin();
-	   ex != exporters.rend();
-	   ++ex) {
-	double maxex = get_maxex(ex->second);
-	if (maxex <= .001) continue;
-
-	// check importers. for now, just in arbitrary order (no intelligent matching).
-	for (map<mds_rank_t, float>::iterator im = mds_import_map[ex->second].begin();
-	     im != mds_import_map[ex->second].end();
-	     ++im) {
-	  double maxim = get_maxim(im->first);
-	  if (maxim <= .001) continue;
-	  try_match(ex->second, maxex,
-		    im->first, maxim);
-	  if (maxex <= .001) break;
-	}
+  if (1) {
+    if (beat % 2 == 1) {
+      // old way
+      dout(15) << "  matching big exporters to big importers" << dendl;
+      // big exporters to big importers
+      multimap<double,mds_rank_t>::reverse_iterator ex = exporters.rbegin();
+      multimap<double,mds_rank_t>::iterator im = importers.begin();
+      while (ex != exporters.rend() &&
+             im != importers.end()) {
+        double maxex = get_maxex(ex->second);
+        double maxim = get_maxim(im->second);
+        if (maxex < .001 || maxim < .001) break;
+        try_match(ex->second, maxex,
+      	    im->second, maxim);
+        if (maxex <= .001) ++ex;
+        if (maxim <= .001) ++im;
       }
-    }
-
-
-    if (1) {
-      if (beat % 2 == 1) {
-	// old way
-	dout(15) << "  matching big exporters to big importers" << dendl;
-	// big exporters to big importers
-	multimap<double,mds_rank_t>::reverse_iterator ex = exporters.rbegin();
-	multimap<double,mds_rank_t>::iterator im = importers.begin();
-	while (ex != exporters.rend() &&
-	       im != importers.end()) {
-	  double maxex = get_maxex(ex->second);
-	  double maxim = get_maxim(im->second);
-	  if (maxex < .001 || maxim < .001) break;
-	  try_match(ex->second, maxex,
-		    im->second, maxim);
-	  if (maxex <= .001) ++ex;
-	  if (maxim <= .001) ++im;
-	}
-      } else {
-	// new way
-	dout(15) << "  matching small exporters to big importers" << dendl;
-	// small exporters to big importers
-	multimap<double,mds_rank_t>::iterator ex = exporters.begin();
-	multimap<double,mds_rank_t>::iterator im = importers.begin();
-	while (ex != exporters.end() &&
-	       im != importers.end()) {
-	  double maxex = get_maxex(ex->second);
-	  double maxim = get_maxim(im->second);
-	  if (maxex < .001 || maxim < .001) break;
-	  try_match(ex->second, maxex,
-		    im->second, maxim);
-	  if (maxex <= .001) ++ex;
-	  if (maxim <= .001) ++im;
-	}
+    } else {
+      // new way
+      dout(15) << "  matching small exporters to big importers" << dendl;
+      // small exporters to big importers
+      multimap<double,mds_rank_t>::iterator ex = exporters.begin();
+      multimap<double,mds_rank_t>::iterator im = importers.begin();
+      while (ex != exporters.end() &&
+             im != importers.end()) {
+        double maxex = get_maxex(ex->second);
+        double maxim = get_maxim(im->second);
+        if (maxex < .001 || maxim < .001) break;
+        try_match(ex->second, maxex,
+      	    im->second, maxim);
+        if (maxex <= .001) ++ex;
+        if (maxim <= .001) ++im;
       }
     }
   }

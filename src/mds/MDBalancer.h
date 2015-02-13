@@ -33,6 +33,12 @@ class MHeartbeat;
 class CInode;
 class CDir;
 
+extern "C"{
+    #include <lua5.2/lualib.h>
+    #include <lua5.2/lauxlib.h>
+    #include <lua5.2/lua.h>
+}
+
 class MDBalancer {
  protected:
   MDS *mds;
@@ -53,7 +59,6 @@ class MDBalancer {
   map<mds_rank_t, mds_load_t>  mds_load;
   map<mds_rank_t, float>       mds_meta_load;
   map<mds_rank_t, map<mds_rank_t, float> > mds_import_map;
-  vector<pair<double, CDir *> > pop_subtrees;
 
   // per-epoch state
   double          my_load, target_load;
@@ -97,8 +102,10 @@ public:
   /*check if the monitor has recorded the current export targets;
     if it has then do the actual export. Otherwise send off our
     export targets message again*/
-  double subtree_loads(CInode *in);
-  void fill_and_spill();
+  void custom_balancer(const char *log, const char* script0, 
+                       const char *script1, const char *script2, 
+                       const char *script3, const char *script4);
+  void spill_equally(int beat);
   void try_rebalance();
   void find_exports(CDir *dir, 
                     double amount, 
