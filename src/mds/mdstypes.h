@@ -78,7 +78,6 @@ extern "C"{
 }
 
 
-
 BOOST_STRONG_TYPEDEF(int32_t, mds_rank_t)
 BOOST_STRONG_TYPEDEF(uint64_t, mds_gid_t)
 extern const mds_gid_t MDS_GID_NONE;
@@ -984,14 +983,65 @@ public:
       vec[i].reset(now);
   }
   double meta_load(utime_t now, const DecayRate& rate) {
-    return 
-      1*vec[META_POP_IRD].get(now, rate) + 
-      2*vec[META_POP_IWR].get(now, rate) +
-      1*vec[META_POP_READDIR].get(now, rate) +
-      2*vec[META_POP_FETCH].get(now, rate) +
-      4*vec[META_POP_STORE].get(now, rate);
+    const char *script0 =
+      "IRD = arg[1]"
+      "IWR = arg[2]"
+      "READDIR = arg[3]"
+      "FETCH = arg[4]"
+      "STORE = arg[5]";
+    char script[100 + strlen(g_conf->mds_bal_metaload.c_str())];
+    int index = 1;
+    lua_State *L = luaL_newstate(); 
+    luaL_openlibs(L);
+    lua_newtable(L);
+    
+    // pass value to Lua
+    lua_pushnumber(L, index++);
+    lua_pushnumber(L, vec[META_POP_IRD].get(now, rate));
+    lua_settable(L, -3);
+    lua_pushnumber(L, index++);
+    lua_pushnumber(L, vec[META_POP_IWR].get(now, rate));
+    lua_settable(L, -3);
+    lua_pushnumber(L, index++);
+    lua_pushnumber(L, vec[META_POP_READDIR].get(now, rate));
+    lua_settable(L, -3);
+    lua_pushnumber(L, index++);
+    lua_pushnumber(L, vec[META_POP_FETCH].get(now, rate));
+    lua_settable(L, -3);
+    lua_pushnumber(L, index++);
+    lua_pushnumber(L, vec[META_POP_STORE].get(now, rate));
+    lua_settable(L, -3);
+
+    // call Lua
+    lua_setglobal(L, "arg"); 
+    double ret = -1;
+    string metaload = g_conf->mds_bal_metaload;
+    replace(metaload.begin(), metaload.end(), '_', ' ');
+    strcpy(script, script0);
+    strcat(script, metaload.c_str());
+
+
+    // don't throw up if the Lua script fails
+    if (luaL_dostring(L, script) == 0) 
+      ret = lua_tonumber(L, lua_gettop(L));
+    lua_close(L);
+    return ret;
+
+    //return 
+    //  1*vec[META_POP_IRD].get(now, rate) + 
+    //  2*vec[META_POP_IWR].get(now, rate) +
+    //  1*vec[META_POP_READDIR].get(now, rate) +
+    //  2*vec[META_POP_FETCH].get(now, rate) +
+    //  4*vec[META_POP_STORE].get(now, rate);
   }
   double meta_load() {
+    const char *script0 =
+      "IRD = arg[1]"
+      "IWR = arg[2]"
+      "READDIR = arg[3]"
+      "FETCH = arg[4]"
+      "STORE = arg[5]";
+    char script[100 + strlen(g_conf->mds_bal_metaload.c_str())];
     int index = 1;
     lua_State *L = luaL_newstate(); 
     luaL_openlibs(L);
@@ -1016,12 +1066,15 @@ public:
 
     // call Lua
     lua_setglobal(L, "arg"); 
-    double ret = 0;
+    double ret = -1;
     string metaload = g_conf->mds_bal_metaload;
     replace(metaload.begin(), metaload.end(), '_', ' ');
+    strcpy(script, script0);
+    strcat(script, metaload.c_str());
+
 
     // don't throw up if the Lua script fails
-    if (luaL_dostring(L, g_conf->mds_bal_metaload.c_str()) == 0) 
+    if (luaL_dostring(L, script) == 0) 
       ret = lua_tonumber(L, lua_gettop(L));
     lua_close(L);
     return ret;

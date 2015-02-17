@@ -417,6 +417,73 @@ void MDBalancer::do_fragmenting()
   }
 }
 
+void MDBalancer::subtree_loads(CInode *in) {
+  if (in != NULL) {
+    if (in->is_dir()) { 
+      list<CDir*> dirfrags;
+      in->get_dirfrags(dirfrags);
+      for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
+           dirfrags_it != dirfrags.end();
+           ++dirfrags_it) {
+        CDir *dir = *dirfrags_it;
+        string path;
+        dir->get_inode()->make_path_string_projected(path);
+        // we don't want to look at snap directories
+        if (path.find("~") != 0){
+          if (pop_subtrees.find(path) != pop_subtrees.end())
+            pop_subtrees.erase(path);
+          pop_subtrees.insert(make_pair(path, dir->pop_auth_subtree));
+          for (CDir::map_t::iterator direntry_it = dir->begin();
+               direntry_it != dir->end();
+               ++direntry_it) 
+            subtree_loads(direntry_it->second->get_linkage()->get_inode());
+        }
+      }
+    }
+  }
+}
+
+void MDBalancer::dump_subtree_loads() {
+  set<CDir*> subtrees;
+  mds->mdcache->get_fullauth_subtrees(subtrees);
+  for (set<CDir*>::iterator it = subtrees.begin();
+       it != subtrees.end();
+       ++it) {
+    CDir *dir = *it;
+    pop_subtrees.clear();
+    subtree_loads(dir->get_inode());
+    size_t count = 0;
+    for (map<string,dirfrag_load_vec_t>::iterator it = pop_subtrees.begin();
+         it != pop_subtrees.end();
+         ++it) {
+      pair<string,dirfrag_load_vec_t> p = *it;
+      if ((count <= (size_t) 10) && (p.second.meta_load(rebalance_time, mds->mdcache->decayrate) >= 0.5)) {
+        dout(2) << "total=" << p.second.meta_load(rebalance_time, mds->mdcache->decayrate) 
+                << " < " << p.second << " > path=/root" << p.first << dendl;
+      //  dout(2) << total=" << p.second.meta_load(rebalance_time, mds->mdcache->decayrate) 
+      //         << " < " <<   p.second.get(META_POP_IRD).get(rebalance_time, mds->mdcache->decayrate)
+      //         << " " <<     p.second.get(META_POP_IWR).get(rebalance_time, mds->mdcache->decayrate)
+      //         << " " << p.second.get(META_POP_READDIR).get(rebalance_time, mds->mdcache->decayrate)
+      //         << " " <<   p.second.get(META_POP_FETCH).get(rebalance_time, mds->mdcache->decayrate)
+      //         << " > path=/root" <<   p.second.get(META_POP_STORE).get(rebalance_time, mds->mdcache->decayrate)
+      //         << dendl;
+      //if ((count <= (size_t) 10) && (p.second.meta_load() >= 0.5)) {
+      //  dout(2) << "total=" << p.second.meta_load() 
+      //        << " < " << p.second.get(META_POP_IRD).get_last()
+      //        << " " << p.second.get(META_POP_IWR).get_last()
+      //        << " " << p.second.get(META_POP_READDIR).get_last()
+      //        << " " << p.second.get(META_POP_FETCH).get_last()
+      //        << " " << p.second.get(META_POP_STORE).get_last()
+      //        << " > path=/root" << p.first
+      //        << dendl; 
+        count++;
+      } else
+        break;
+
+    }
+  }
+}
+
 
 
 void MDBalancer::prep_rebalance(int beat)
@@ -425,14 +492,9 @@ void MDBalancer::prep_rebalance(int beat)
   const char *script0 = 
     "package.path = package.path .. ';/home/msevilla/code/ceph/src/mds/balancers/modules/?.lua;'\n"
     "require \"MDSParser\"\n"
-    "f = io.open(arg[1], \"a\")\n"
-    "io.output(f)\n"
-    "io.write(string.format(\"  [Lua5.2] made it inside Lua, trying to parse args\\n\"))\n"
     "whoami, MDSs = MDSParser.parse_args(arg)\n"
-    "io.write(string.format(\"  [Lua5.2] whoami=%d\\n\", whoami))\n"
     "i=whoami\n"
     "my_auth_metaload = MDSs[whoami][\"auth\"]\n"
-    "io.close(f)\n"
     "-- begin MDS_BAL_MDSLOAD --\n"
     "my_mdsload = "; 
   const char *script1 =
@@ -451,14 +513,14 @@ void MDBalancer::prep_rebalance(int beat)
     "end\n"
     "f = io.open(arg[1], \"a\")\n"
     "io.output(f)\n"
-    "io.write(string.format(\"  [Lua5.2] total=%d, scale=%f=%f/%f\\n\", total,scale, my_auth_metaload, my_mdsload))\n"
+    "io.write(string.format(\"  [Lua5.2] whoami=%d, total=%d, scale=%f=%f/%f\\n\", whoami, total, scale, my_auth_metaload, my_mdsload))\n"
     "-- begin MDS_BAL_WHEN --\n"
     "if "; 
   const char *script3 =
     "\n"
     " then \n" 
     "-- end   MDS_BAL_WHEN --\n"
-    "   io.write(\"  [Lua5.2] migrating because \"%s\" was satisfied!\\n\")\n"
+    "   io.write(\"  [Lua5.2] migrating!\\n\")\n"
     "   E = {}; I = {}\n"
     "   for i=1,#MDSs do\n"
     "     metaload = MDSs[i][\"load\"]\n"
@@ -483,6 +545,8 @@ void MDBalancer::prep_rebalance(int beat)
     "io.close(f)\n"
     "return ret";
 
+
+  dump_subtree_loads();
   if (g_conf->mds_thrash_exports) {
     //we're going to randomly export to all the mds in the cluster
     my_targets.clear();
@@ -536,20 +600,34 @@ void MDBalancer::custom_balancer(const char *log_file, const char *script0,
   replace(where.begin(), where.end(), '_', ' ');
   strcat(script, where.c_str());
   strcat(script, script4);
+  rebalance_time = ceph_clock_now(g_ceph_context);
 
   mds_rank_t whoami = mds->get_nodeid();
   int cluster_size = mds->get_mds_map()->get_num_in_mds();
+  double load_fac = 1.0;
+  map<mds_rank_t, mds_load_t>::iterator m = mds_load.find(whoami);
+  if ((m != mds_load.end()) && (m->second.mds_load() > 0)) {
+    double metald = m->second.auth.meta_load(rebalance_time, mds->mdcache->decayrate);
+    double mdsld = m->second.mds_load();
+    load_fac = metald / mdsld;
+    dout(0) << " load_fac is " << load_fac
+            << " <- " << m->second.auth << " " << metald
+            << " / " << mdsld
+            << dendl;
+  }
 
+
+
+  dout(2) << "- metaload = " << g_conf->mds_bal_metaload.c_str() << dendl;
+  dout(2) << "- mdsload  = " << mdsload << dendl;
+  dout(2) << "- when     = " << when << dendl;
+  dout(2) << "- where    = " << where << dendl;
   if (!mdsload.compare("") || !when.compare("") || !where.compare("")) {
     dout(0) << "custom_balancer: missing mdsload/when/where script, not making migration decisions" << dendl;
     return;
   }
-  dout(5) << "- mdsload = " << mdsload << dendl;
-  dout(5) << "- when    = " << when << dendl;
-  dout(5) << "- where   = " << where << dendl;
  
   dout(0) << "transferring control to Lua, using " << log_file << dendl;
-  dout(10) << script << dendl;;
   lua_State *L = luaL_newstate();
   luaL_openlibs(L);
   lua_newtable(L);
@@ -624,7 +702,7 @@ void MDBalancer::custom_balancer(const char *log_file, const char *script0,
         char line[LINE_MAX] = "";
         script[i] = ' ';
         strncpy(line, start, nchars);
-        dout(0) << lines << ". " << line << dendl;
+        dout(10) << lines << ". " << line << dendl;
         start = start + nchars;
         nchars = 0;
         lines++;
@@ -660,7 +738,7 @@ void MDBalancer::spill_equally(int beat)
     double metald = m->second.auth.meta_load(rebalance_time, mds->mdcache->decayrate);
     double mdsld = m->second.mds_load();
     load_fac = metald / mdsld;
-    dout(7) << " load_fac is " << load_fac
+    dout(0) << " load_fac is " << load_fac
             << " <- " << m->second.auth << " " << metald
             << " / " << mdsld
             << dendl;
