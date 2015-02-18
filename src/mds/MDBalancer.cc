@@ -579,14 +579,23 @@ void MDBalancer::custom_balancer(const char *log_file, const char *script0,
               strlen(script4)];
   strcpy(script, script0);
   replace(mdsload.begin(), mdsload.end(), '_', ' ');
+  size_t pos = 0;
+  while((pos = where.find("\\n", pos)) != string::npos)
+    where.replace(pos, 2, " \n");
   strcat(script, mdsload.c_str());
   strcat(script, script1);
   strcat(script, mdsload.c_str());
   strcat(script, script2);
   replace(when.begin(), when.end(), '_', ' ');
+  pos = 0;
+  while((pos = where.find("\\n", pos)) != string::npos)
+    where.replace(pos, 2, " \n");
   strcat(script, when.c_str());
   strcat(script, script3);
   replace(where.begin(), where.end(), '_', ' ');
+  pos = 0;
+  while((pos = where.find("\\n", pos)) != string::npos)
+    where.replace(pos, 2, " \n");
   strcat(script, where.c_str());
   strcat(script, script4);
   rebalance_time = ceph_clock_now(g_ceph_context);
