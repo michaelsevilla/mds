@@ -502,7 +502,9 @@ void MDBalancer::prep_rebalance(int beat)
     "end\n"
     "f = io.open(arg[1], \"a\")\n"
     "io.output(f)\n"
-    "io.write(string.format(\"  [Lua5.2] whoami=%d, total=%d, scale=%f=%f/%f\\n\", whoami, total, scale, my_auth_metaload, my_mdsload))\n"
+    "io.write(string.format(\"  [Lua5.2] whoami=%d, total=%f, scale=%f=%f/%f\\n\", whoami, total, scale, my_auth_metaload, my_mdsload))\n"
+    "targets = {}\n"
+    "for i=1,#MDSs do targets[i] = 0 end\n"
     "-- begin MDS_BAL_WHEN --\n"
     "if "; 
   const char *script3 =
@@ -518,9 +520,11 @@ void MDBalancer::prep_rebalance(int beat)
     "   end\n"
     " else\n"
     "   io.write(\"  [Lua5.2] not migrating!\\n\")\n"
+    "   io.close(f)\n"
+    "   ret = \"\"\n"
+    "   for i=1,#targets do ret = ret..targets[i]..\" \" end\n"
+    "   return ret\n"
     " end\n"
-    "targets = {}"
-    "for i=1,#MDSs do targets[i] = 0 end\n"
     "io.close(f)\n"
     "MDSParser.print_metrics(arg[1], MDSs)\n" 
     "f = io.open(arg[1], \"a\")\n"
@@ -533,7 +537,6 @@ void MDBalancer::prep_rebalance(int beat)
     "for i=1,#targets do ret = ret..targets[i]..\" \" end\n"
     "io.close(f)\n"
     "return ret";
-
 
   dump_subtree_loads();
   if (g_conf->mds_thrash_exports) {
@@ -602,6 +605,8 @@ void MDBalancer::custom_balancer(const char *log_file, const char *script0,
 
   mds_rank_t whoami = mds->get_nodeid();
   int cluster_size = mds->get_mds_map()->get_num_in_mds();
+  
+  if (!mds->mdcache->migrator->export_queue_empty()) return;
 
   dout(2) << "- metaload = " << g_conf->mds_bal_metaload.c_str() << dendl;
   dout(2) << "- mdsload  = " << mdsload << dendl;
@@ -1165,6 +1170,10 @@ void MDBalancer::find_exports(CDir *dir,
 
   // grab some sufficiently big small items
   multimap<double,CDir*>::reverse_iterator it;
+  // MSEVILLA: delete everything below hurr.
+  // Do all 6 permutations, real quick, of what to send
+  // Choose the one with the smallest net distance - this should help us emulate GIGA+
+  // Fix the drill down afterwards - we don't want to drill down until we ABSOLUTELY have to
   for (it = smaller.rbegin();
        it != smaller.rend();
        ++it) {
