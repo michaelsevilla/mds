@@ -105,6 +105,9 @@ public:
     export targets message again*/
   void subtree_loads(CInode *in);
   void dump_subtree_loads();
+  void pause_balancer(const char *log, const char* script0, 
+                       const char *script1, const char *script2, 
+                       const char *script3, const char *script4);
   void custom_balancer(const char *log, const char* script0, 
                        const char *script1, const char *script2, 
                        const char *script3, const char *script4);

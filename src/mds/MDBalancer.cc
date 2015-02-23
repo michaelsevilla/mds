@@ -556,9 +556,23 @@ void MDBalancer::prep_rebalance(int beat)
   case 1:
     custom_balancer(log_file, script0, script1, script2, script3, script4); 
     break;
+  case 2:
+    pause_balancer(log_file, script0, script1, script2, script3, script4); 
+    break;
   default:
     dout(1) << "unknown design pattern" << dendl;
   }
+}
+
+void MDBalancer::pause_balancer(const char *log_file, const char *script0,
+                                 const char *script1, const char *script2, 
+                                 const char *script3, const char *script4) 
+{
+  while(g_conf->mds_bal_design_pattern == 2) {
+    dout(0) << "waiting for you to change the mds_bal_design_pattern..." << dendl;
+    usleep(10 * 1000 * 1000);
+  }
+  custom_balancer(log_file, script0, script1, script2, script3, script4);
 }
 
 // balancer design patterns: any implementation should inherit from one of these
