@@ -36,6 +36,6 @@ std::string const pretty_version_to_str(void)
 {
   std::ostringstream oss;
   oss << "ceph version " << CEPH_GIT_NICE_VER << " ("
-      << STRINGIFY(CEPH_GIT_VER) << "). MSEVILLA - client: req logging, caps on dirs/files distinction. MDS: all migrate debugging, add spill and fill.";
+      << STRINGIFY(CEPH_GIT_VER) << "). MSEVILLA - client: req logging, caps on dirs/files distinction. MDS: all migrate debugging, add spill and fill, customized balancers.";
   return oss.str();
 }

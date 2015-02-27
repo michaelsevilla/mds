@@ -406,6 +406,7 @@ OPTION(mds_bal_metaload, OPT_STR,  "")
 OPTION(mds_bal_mdsload, OPT_STR,  "")
 OPTION(mds_bal_when, OPT_STR,  "")
 OPTION(mds_bal_where, OPT_STR,  "")
+OPTION(mds_bal_howmuch, OPT_STR,  "")
 OPTION(mds_replay_interval, OPT_FLOAT, 1.0) // time to wait before starting replay again
 OPTION(mds_shutdown_check, OPT_INT, 0)
 OPTION(mds_thrash_exports, OPT_INT, 0)

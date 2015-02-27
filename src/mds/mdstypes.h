@@ -984,11 +984,12 @@ public:
   }
   double meta_load(utime_t now, const DecayRate& rate) {
     const char *script0 =
-      "IRD = arg[1]"
-      "IWR = arg[2]"
-      "READDIR = arg[3]"
-      "FETCH = arg[4]"
-      "STORE = arg[5]";
+      "IRD = arg[1]\n"
+      "IWR = arg[2]\n"
+      "READDIR = arg[3]\n"
+      "FETCH = arg[4]\n"
+      "STORE = arg[5]\n"
+      "return ";
     char script[100 + strlen(g_conf->mds_bal_metaload.c_str())];
     int index = 1;
     lua_State *L = luaL_newstate(); 
@@ -1020,7 +1021,6 @@ public:
     strcpy(script, script0);
     strcat(script, metaload.c_str());
 
-
     // don't throw up if the Lua script fails
     if (luaL_dostring(L, script) == 0) 
       ret = lua_tonumber(L, lua_gettop(L));
@@ -1036,11 +1036,12 @@ public:
   }
   double meta_load() {
     const char *script0 =
-      "IRD = arg[1]"
-      "IWR = arg[2]"
-      "READDIR = arg[3]"
-      "FETCH = arg[4]"
-      "STORE = arg[5]";
+      "IRD = arg[1]\n"
+      "IWR = arg[2]\n"
+      "READDIR = arg[3]\n"
+      "FETCH = arg[4]\n"
+      "STORE = arg[5]\n"
+      "return ";
     char script[100 + strlen(g_conf->mds_bal_metaload.c_str())];
     int index = 1;
     lua_State *L = luaL_newstate(); 
