@@ -30,8 +30,9 @@ end
 function parse_args(arg)
   debug = arg[1]
   whoami = arg[2]
+  myauth = arg[3]
   metrics = {}
-  if (#arg - 2) % #METRICS ~= 0 then
+  if (#arg - 3) % #METRICS ~= 0 then
     f = io.open(debug, "a")
     io.output(f)
     io.write("  [Lua5.2] Didn't receive all load metrics for all MDSs\n")
@@ -40,7 +41,7 @@ function parse_args(arg)
   end
   i = 1
   for k,v in ipairs(arg) do 
-    if k > 2 then  
+    if k > 3 then  
       metrics[i] = v 
       i = i + 1
     end 
@@ -56,7 +57,7 @@ function parse_args(arg)
     mdss[nmds][METRICS[(i % #METRICS) + 1]] = metrics[i+1]
     i = i + 1
   end
-  return whoami, mdss
+  return whoami, mdss, myauth
 end
 
 
