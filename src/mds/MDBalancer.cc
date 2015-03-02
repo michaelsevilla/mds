@@ -37,7 +37,7 @@ using std::vector;
 
 #include "common/config.h"
 
-#define dout_subsys ceph_subsys_mds
+#define dout_subsys ceph_subsys_mds_balancer
 #undef DOUT_COND
 #define DOUT_COND(cct, l) l<=cct->_conf->debug_mds||l<=cct->_conf->debug_mds_balancer
 #undef dout_prefix
@@ -647,9 +647,15 @@ void MDBalancer::custom_balancer(const char *log_file)
   mds_rank_t whoami = mds->get_nodeid();
   int cluster_size = mds->get_mds_map()->get_num_in_mds();
   
-  if (!mds->mdcache->migrator->export_queue_empty()) return;
+  dout(5) << "Preparing transfer to Lua, clearing mytargets=" << my_targets.size()
+          << " imported=" << imported.size() 
+          << " exported=" << exported.size() 
+          << dendl;
+  my_targets.clear();
+  imported.clear();
+  exported.clear();
+  mds->mdcache->migrator->clear_export_queue();
 
-  dout(5) << "Preparing transfer to Lua, export queue=" << mds->mdcache->migrator->export_queue_empty() << dendl;
 
   dout(2) << "- metaload = " << g_conf->mds_bal_metaload.c_str() << dendl;
   dout(2) << "- mdsload  = " << mdsload << dendl;
