@@ -164,6 +164,8 @@ Client::Client(Messenger *m, MonClient *mc)
     ino_invalidate_cb(NULL),
     dentry_invalidate_cb(NULL),
     getgroups_cb(NULL),
+    can_invalidate_dentries(false),
+    require_remount(false),
     async_ino_invalidator(m->cct),
     async_dentry_invalidator(m->cct),
     interrupt_finisher(m->cct),
@@ -792,14 +794,6 @@ Inode * Client::add_update_inode(InodeStat *st, utime_t from,
       in->nlink = st->nlink;
     }
 
-    if ((in->xattr_version  == 0 || !(issued & CEPH_CAP_XATTR_EXCL)) &&
-	st->xattrbl.length() &&
-	st->xattr_version > in->xattr_version) {
-      bufferlist::iterator p = st->xattrbl.begin();
-      ::decode(in->xattrs, p);
-      in->xattr_version = st->xattr_version;
-    }
-
     in->dirstat = st->dirstat;
     in->rstat = st->rstat;
 
@@ -821,6 +815,14 @@ Inode * Client::add_update_inode(InodeStat *st, utime_t from,
   } else if (st->inline_version > in->inline_version) {
     in->inline_data = st->inline_data;
     in->inline_version = st->inline_version;
+  }
+
+  if ((in->xattr_version  == 0 || !(issued & CEPH_CAP_XATTR_EXCL)) &&
+      st->xattrbl.length() &&
+      st->xattr_version > in->xattr_version) {
+    bufferlist::iterator p = st->xattrbl.begin();
+    ::decode(in->xattrs, p);
+    in->xattr_version = st->xattr_version;
   }
 
   // move me if/when version reflects fragtree changes.
@@ -1861,7 +1863,8 @@ void Client::_kick_stale_sessions()
   }
 }
 
-void Client::send_request(MetaRequest *request, MetaSession *session)
+void Client::send_request(MetaRequest *request, MetaSession *session,
+			  bool drop_cap_releases)
 {
   // make the request
   mds_rank_t mds = session->mds_num;
@@ -1875,7 +1878,10 @@ void Client::send_request(MetaRequest *request, MetaSession *session)
     r->set_replayed_op();
   } else {
     encode_cap_releases(request, mds);
-    r->releases.swap(request->cap_releases);
+    if (drop_cap_releases) // we haven't send cap reconnect yet, drop cap releases
+      request->cap_releases.clear();
+    else
+      r->releases.swap(request->cap_releases);
   }
   r->set_mdsmap_epoch(mdsmap->get_epoch());
 
@@ -1925,7 +1931,7 @@ MClientRequest* Client::build_client_request(MetaRequest *request)
   req->set_filepath(request->get_filepath());
   req->set_filepath2(request->get_filepath2());
   req->set_data(request->data);
-  req->set_retry_attempt(request->retry_attempt);
+  req->set_retry_attempt(request->retry_attempt++);
   req->head.num_fwd = request->num_fwd;
   return req;
 }
@@ -2251,6 +2257,7 @@ void Client::handle_mds_map(MMDSMap* m)
 
     if (newstate >= MDSMap::STATE_ACTIVE) {
       if (oldstate < MDSMap::STATE_ACTIVE) {
+	// kick new requests
 	kick_requests(p->second);
 	kick_flushing_caps(p->second);
 	signal_context_list(p->second->waiting_for_open);
@@ -2284,6 +2291,13 @@ void Client::send_reconnect(MetaSession *session)
     session->release->put();
     session->release = NULL;
   }
+
+  // reset my cap seq number
+  session->seq = 0;
+  //connect to the mds' offload targets
+  connect_mds_targets(mds);
+  //make sure unsafe requests get saved
+  resend_unsafe_requests(session);
 
   MClientReconnect *m = new MClientReconnect;
 
@@ -2323,15 +2337,6 @@ void Client::send_reconnect(MetaSession *session)
       }	
     }
   }
-  
-  // reset my cap seq number
-  session->seq = 0;
-  
-  //connect to the mds' offload targets
-  connect_mds_targets(mds);
-  //make sure unsafe requests get saved
-  resend_unsafe_requests(session);
-
   session->con->send_message(m);
 
   mount_cond.Signal();
@@ -2344,6 +2349,10 @@ void Client::kick_requests(MetaSession *session)
   for (map<ceph_tid_t, MetaRequest*>::iterator p = mds_requests.begin();
        p != mds_requests.end();
        ++p) {
+    if (p->second->got_unsafe)
+      continue;
+    if (p->second->retry_attempt > 0)
+      continue; // new requests only
     if (p->second->mds == session->mds_num) {
       send_request(p->second, session);
     }
@@ -2356,6 +2365,20 @@ void Client::resend_unsafe_requests(MetaSession *session)
        !iter.end();
        ++iter)
     send_request(*iter, session);
+
+  // also re-send old requests when MDS enters reconnect stage. So that MDS can
+  // process completed requests in clientreplay stage.
+  for (map<ceph_tid_t, MetaRequest*>::iterator p = mds_requests.begin();
+       p != mds_requests.end();
+       ++p) {
+    MetaRequest *req = p->second;
+    if (req->got_unsafe)
+      continue;
+    if (req->retry_attempt == 0)
+      continue; // old requests only
+    if (req->mds == session->mds_num)
+      send_request(req, session, true);
+  }
 }
 
 void Client::kick_requests_closed(MetaSession *session)
@@ -3424,16 +3447,33 @@ private:
 public:
   C_Client_Remount(Client *c) : client(c) {}
   void finish(int r) {
-    client->remount_cb(client->callback_handle);
+    assert (r == 0);
+    r = client->remount_cb(client->callback_handle);
+    if (r != 0) {
+      client_t whoami = client->get_nodeid();
+      lderr(client->cct) << "tried to remount (to trim kernel dentries) and got error "
+			 << r << dendl;
+      if (client->require_remount) {
+	assert(0 == "failed to remount for kernel dentry trimming");
+      }
+    }
   }
 };
 
 void Client::_invalidate_kernel_dcache()
 {
-  // Hacky:
-  // when remounting a file system, linux kernel trims all unused dentries in the file system
-  if (remount_cb)
+  if (can_invalidate_dentries && dentry_invalidate_cb && root->dir) {
+    for (ceph::unordered_map<string, Dentry*>::iterator p = root->dir->dentries.begin();
+	 p != root->dir->dentries.end();
+	 ++p) {
+      if (p->second->inode)
+	_schedule_invalidate_dentry_callback(p->second, false);
+    }
+  } else if (remount_cb) {
+    // Hacky:
+    // when remounting a file system, linux kernel trims all unused dentries in the fs
     remount_finisher.queue(new C_Client_Remount(this));
+  }
 }
 
 void Client::trim_caps(MetaSession *s, int max)
@@ -3465,6 +3505,13 @@ void Client::trim_caps(MetaSession *s, int max)
       while (q != in->dn_set.end()) {
 	Dentry *dn = *q++;
 	if (dn->lru_is_expireable()) {
+	  if (can_invalidate_dentries &&
+	      dn->dir->parent_inode->ino == MDS_INO_ROOT) {
+	    // Only issue one of these per DN for inodes in root: handle
+	    // others more efficiently by calling for root-child DNs at
+	    // the end of this function.
+	    _schedule_invalidate_dentry_callback(dn, true);
+	  }
 	  trim_dentry(dn);
         } else {
           ldout(cct, 20) << "  not expirable: " << dn->name << dendl;
@@ -3693,6 +3740,10 @@ void Client::put_snap_realm(SnapRealm *realm)
 		 << " " << realm->nref << " -> " << (realm->nref - 1) << dendl;
   if (--realm->nref == 0) {
     snap_realms.erase(realm->ino);
+    if (realm->pparent) {
+      realm->pparent->pchildren.erase(realm);
+      put_snap_realm(realm->pparent);
+    }
     delete realm;
   }
 }
@@ -5467,6 +5518,10 @@ int Client::fsetattr(int fd, struct stat *attr, int mask)
   Fh *f = get_filehandle(fd);
   if (!f)
     return -EBADF;
+#if defined(__linux__) && defined(O_PATH)
+  if (f->flags & O_PATH)
+    return -EBADF;
+#endif
   return _setattr(f->inode, attr, mask); 
 }
 
@@ -5587,6 +5642,10 @@ int Client::fchmod(int fd, mode_t mode)
   Fh *f = get_filehandle(fd);
   if (!f)
     return -EBADF;
+#if defined(__linux__) && defined(O_PATH)
+  if (f->flags & O_PATH)
+    return -EBADF;
+#endif
   struct stat attr;
   attr.st_mode = mode;
   return _setattr(f->inode, &attr, CEPH_SETATTR_MODE);
@@ -5640,6 +5699,10 @@ int Client::fchown(int fd, int uid, int gid)
   Fh *f = get_filehandle(fd);
   if (!f)
     return -EBADF;
+#if defined(__linux__) && defined(O_PATH)
+  if (f->flags & O_PATH)
+    return -EBADF;
+#endif
   struct stat attr;
   attr.st_uid = uid;
   attr.st_gid = gid;
@@ -6375,12 +6438,31 @@ int Client::open(const char *relpath, int flags, mode_t mode, int stripe_unit,
 
   Fh *fh = NULL;
 
+#if defined(__linux__) && defined(O_PATH)
+  /* When the O_PATH is being specified, others flags than O_DIRECTORY
+   * and O_NOFOLLOW are ignored. Please refer do_entry_open() function
+   * in kernel (fs/open.c). */
+  if (flags & O_PATH)
+    flags &= O_DIRECTORY | O_NOFOLLOW | O_PATH;
+#endif
+
   filepath path(relpath);
   Inode *in;
   bool created = false;
-  int r = path_walk(path, &in);
+  /* O_CREATE with O_EXCL enforces O_NOFOLLOW. */
+  bool followsym = !((flags & O_NOFOLLOW) || ((flags & O_CREAT) && (flags & O_EXCL)));
+  int r = path_walk(path, &in, followsym);
+
   if (r == 0 && (flags & O_CREAT) && (flags & O_EXCL))
     return -EEXIST;
+
+#if defined(__linux__) && defined(O_PATH)
+  if (r == 0 && in->is_symlink() && (flags & O_NOFOLLOW) && !(flags & O_PATH))
+#else
+  if (r == 0 && in->is_symlink() && (flags & O_NOFOLLOW))
+#endif
+    return -ELOOP;
+
   if (r == -ENOENT && (flags & O_CREAT)) {
     filepath dirpath = path;
     string dname = dirpath.last_dentry();
@@ -6693,6 +6775,10 @@ loff_t Client::lseek(int fd, loff_t offset, int whence)
   Fh *f = get_filehandle(fd);
   if (!f)
     return -EBADF;
+#if defined(__linux__) && defined(O_PATH)
+  if (f->flags & O_PATH)
+    return -EBADF;
+#endif
   return _lseek(f, offset, whence);
 }
 
@@ -6812,6 +6898,10 @@ int Client::read(int fd, char *buf, loff_t size, loff_t offset)
   Fh *f = get_filehandle(fd);
   if (!f)
     return -EBADF;
+#if defined(__linux__) && defined(O_PATH)
+  if (f->flags & O_PATH)
+    return -EBADF;
+#endif
   bufferlist bl;
   int r = _read(f, offset, size, &bl);
   ldout(cct, 3) << "read(" << fd << ", " << (void*)buf << ", " << size << ", " << offset << ") = " << r << dendl;
@@ -7133,6 +7223,10 @@ int Client::write(int fd, const char *buf, loff_t size, loff_t offset)
   Fh *fh = get_filehandle(fd);
   if (!fh)
     return -EBADF;
+#if defined(__linux__) && defined(O_PATH)
+  if (fh->flags & O_PATH)
+    return -EBADF;
+#endif
   int r = _write(fh, offset, size, buf);
   ldout(cct, 3) << "write(" << fd << ", \"...\", " << size << ", " << offset << ") = " << r << dendl;
   return r;
@@ -7378,6 +7472,10 @@ int Client::ftruncate(int fd, loff_t length)
   Fh *f = get_filehandle(fd);
   if (!f)
     return -EBADF;
+#if defined(__linux__) && defined(O_PATH)
+  if (f->flags & O_PATH)
+    return -EBADF;
+#endif
   struct stat attr;
   attr.st_size = length;
   return _setattr(f->inode, &attr, CEPH_SETATTR_SIZE);
@@ -7393,6 +7491,10 @@ int Client::fsync(int fd, bool syncdataonly)
   Fh *f = get_filehandle(fd);
   if (!f)
     return -EBADF;
+#if defined(__linux__) && defined(O_PATH)
+  if (f->flags & O_PATH)
+    return -EBADF;
+#endif
   int r = _fsync(f, syncdataonly);
   ldout(cct, 3) << "fsync(" << fd << ", " << syncdataonly << ") = " << r << dendl;
   return r;
@@ -7909,6 +8011,34 @@ void Client::ll_register_callbacks(struct client_callback_args *args)
     remount_finisher.start();
   }
   getgroups_cb = args->getgroups_cb;
+}
+
+int Client::test_dentry_handling(bool can_invalidate)
+{
+  int r = 0;
+
+  can_invalidate_dentries = can_invalidate;
+
+  if (can_invalidate_dentries) {
+    assert(dentry_invalidate_cb);
+    ldout(cct, 1) << "using dentry_invalidate_cb" << dendl;
+  } else if (remount_cb) {
+    ldout(cct, 1) << "using remount_cb" << dendl;
+    int s = remount_cb(callback_handle);
+    if (s) {
+      lderr(cct) << "Failed to invoke remount, needed to ensure kernel dcache consistency"
+		 << dendl;
+    }
+    if (cct->_conf->client_die_on_failed_remount) {
+      require_remount = true;
+      r = s;
+    }
+  } else {
+    lderr(cct) << "no method to invalidate kernel dentry cache; expect issues!" << dendl;
+    if (cct->_conf->client_die_on_failed_remount)
+      assert(0);
+  }
+  return r;
 }
 
 int Client::_sync_fs()
@@ -9185,12 +9315,16 @@ int Client::_rmdir(Inode *dir, const char *name, int uid, int gid)
   int res = get_or_create(dir, name, &de);
   if (res < 0)
     goto fail;
-  req->set_dentry(de);
   Inode *in;
   res = _lookup(dir, name, &in);
   if (res < 0)
     goto fail;
-  req->set_inode(in);
+  if (req->get_op() == CEPH_MDS_OP_RMDIR) {
+    req->set_dentry(de);
+    req->set_inode(in);
+  } else {
+    unlink(de, true, true);
+  }
 
   res = make_request(req, uid, gid);
 
@@ -9977,6 +10111,10 @@ int Client::fallocate(int fd, int mode, loff_t offset, loff_t length)
   Fh *fh = get_filehandle(fd);
   if (!fh)
     return -EBADF;
+#if defined(__linux__) && defined(O_PATH)
+  if (fh->flags & O_PATH)
+    return -EBADF;
+#endif
   return _fallocate(fh, mode, offset, length);
 }
 

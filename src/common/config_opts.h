@@ -326,6 +326,8 @@ OPTION(fuse_big_writes, OPT_BOOL, true)
 OPTION(fuse_atomic_o_trunc, OPT_BOOL, true)
 OPTION(fuse_debug, OPT_BOOL, false)
 OPTION(fuse_multithreaded, OPT_BOOL, true)
+OPTION(client_try_dentry_invalidate, OPT_BOOL, true) // the client should try to use dentry invaldation instead of remounting, on kernels it believes that will work for
+OPTION(client_die_on_failed_remount, OPT_BOOL, true)
 
 OPTION(crush_location, OPT_STR, "")       // whitespace-separated list of key=value pairs describing crush location
 
@@ -401,13 +403,13 @@ OPTION(mds_bal_midchunk, OPT_FLOAT, .3)       // any sub bigger than this taken 
 OPTION(mds_bal_minchunk, OPT_FLOAT, .001)     // never take anything smaller than this
 OPTION(mds_bal_target_removal_min, OPT_INT, 5) // min balance iterations before old target is removed
 OPTION(mds_bal_target_removal_max, OPT_INT, 10) // max balance iterations before old target is removed
-OPTION(mds_bal_design_pattern, OPT_INT,  0)
+OPTION(mds_replay_interval, OPT_FLOAT, 1.0) // time to wait before starting replay again
+OPTION(mds_bal_lua, OPT_INT,  0)
 OPTION(mds_bal_metaload, OPT_STR,  "")
 OPTION(mds_bal_mdsload, OPT_STR,  "")
 OPTION(mds_bal_when, OPT_STR,  "")
 OPTION(mds_bal_where, OPT_STR,  "")
 OPTION(mds_bal_howmuch, OPT_STR,  "")
-OPTION(mds_replay_interval, OPT_FLOAT, 1.0) // time to wait before starting replay again
 OPTION(mds_shutdown_check, OPT_INT, 0)
 OPTION(mds_thrash_exports, OPT_INT, 0)
 OPTION(mds_thrash_fragments, OPT_INT, 0)
@@ -511,6 +513,10 @@ OPTION(osd_erasure_code_plugins, OPT_STR,
        " isa"
 #endif
        ) // list of erasure code plugins
+
+// Allows the "peered" state for recovery and backfill below min_size
+OPTION(osd_allow_recovery_below_min_size, OPT_BOOL, true)
+
 OPTION(osd_pool_default_flags, OPT_INT, 0)   // default flags for new pools
 OPTION(osd_pool_default_flag_hashpspool, OPT_BOOL, true)   // use new pg hashing to prevent pool/pg overlap
 OPTION(osd_pool_default_flag_nodelete, OPT_BOOL, false) // pool can't be deleted
@@ -652,9 +658,15 @@ OPTION(osd_failsafe_full_ratio, OPT_FLOAT, .97) // what % full makes an OSD "ful
 OPTION(osd_failsafe_nearfull_ratio, OPT_FLOAT, .90) // what % full makes an OSD near full (failsafe)
 
 OPTION(osd_pg_object_context_cache_count, OPT_INT, 64)
+OPTION(osd_enable_degraded_writes, OPT_BOOL, true)
 
 // determines whether PGLog::check() compares written out log to stored log
 OPTION(osd_debug_pg_log_writeout, OPT_BOOL, false)
+
+// default timeout while caling WaitInterval on an empty queue
+OPTION(threadpool_default_timeout, OPT_INT, 60)
+// default wait time for an empty queue before pinging the hb timeout
+OPTION(threadpool_empty_queue_max_wait, OPT_INT, 2)
 
 OPTION(leveldb_write_buffer_size, OPT_U64, 8 *1024*1024) // leveldb write buffer size
 OPTION(leveldb_cache_size, OPT_U64, 128 *1024*1024) // leveldb cache size
@@ -864,7 +876,9 @@ OPTION(rbd_readahead_trigger_requests, OPT_INT, 10) // number of sequential requ
 OPTION(rbd_readahead_max_bytes, OPT_LONGLONG, 512 * 1024) // set to 0 to disable readahead
 OPTION(rbd_readahead_disable_after_bytes, OPT_LONGLONG, 50 * 1024 * 1024) // how many bytes are read in total before readahead is disabled
 OPTION(rbd_clone_copy_on_read, OPT_BOOL, false)
-OPTION(rbd_object_map, OPT_BOOL, false) // whether to enable the RBD object map
+OPTION(rbd_blacklist_on_break_lock, OPT_BOOL, true) // whether to blacklist clients whose lock was broken
+OPTION(rbd_blacklist_expire_seconds, OPT_INT, 0) // number of seconds to blacklist - set to 0 for OSD default
+OPTION(rbd_request_timed_out_seconds, OPT_INT, 30) // number of seconds before maint request times out
 
 /*
  * The following options change the behavior for librbd's image creation methods that
@@ -886,7 +900,7 @@ OPTION(rbd_default_format, OPT_INT, 1)
 OPTION(rbd_default_order, OPT_INT, 22)
 OPTION(rbd_default_stripe_count, OPT_U64, 0) // changing requires stripingv2 feature
 OPTION(rbd_default_stripe_unit, OPT_U64, 0) // changing to non-object size requires stripingv2 feature
-OPTION(rbd_default_features, OPT_INT, 7) // only applies to format 2 images
+OPTION(rbd_default_features, OPT_INT, 3) // only applies to format 2 images
 					 // +1 for layering, +2 for stripingv2,
 					 // +4 for exclusive lock, +8 for object map
 

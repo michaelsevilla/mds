@@ -510,7 +510,7 @@ int md_config_t::parse_option(std::vector<const char*>& args,
     else if (ceph_argparse_witharg(args, i, &val,
 				   as_option.c_str(), (char*)NULL)) {
       if (oss && (
-		  ((opt->type == OPT_ADDR) ||
+		  ((opt->type == OPT_STR) || (opt->type == OPT_ADDR) ||
 		   (opt->type == OPT_UUID)) &&
 		  (observers.find(opt->name) == observers.end()))) {
 	*oss << "You cannot change " << opt->name << " using injectargs.\n";
@@ -700,7 +700,7 @@ int md_config_t::set_val(const char *key, const char *val, bool meta, bool safe)
 	// If threads have been started...
         // MSEVILLA
 	//if ((opt->type == OPT_STR) || (opt->type == OPT_ADDR) ||
-	if ((opt->type == OPT_ADDR) ||
+        if ((opt->type == OPT_ADDR) ||
 	    (opt->type == OPT_UUID)) {
 	  // And this is NOT an integer valued variable....
 	  if (observers.find(opt->name) == observers.end()) {
@@ -1133,9 +1133,4 @@ void md_config_t::diff(
     if (strcmp(local_val, other_val))
       diff->insert(make_pair(opt->name, make_pair(local_val, other_val)));
   }
-}
-
-md_config_obs_t::
-~md_config_obs_t()
-{
 }

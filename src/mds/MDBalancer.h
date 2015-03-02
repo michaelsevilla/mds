@@ -59,7 +59,6 @@ class MDBalancer {
   map<mds_rank_t, mds_load_t>  mds_load;
   map<mds_rank_t, float>       mds_meta_load;
   map<mds_rank_t, map<mds_rank_t, float> > mds_import_map;
-  map<CDir*,double> pop_subtrees;
 
   // per-epoch state
   double          my_load, target_load;
@@ -107,7 +106,6 @@ public:
   void dump_subtree_loads();
   void pause_balancer(const char *log);
   void custom_balancer(const char *log);
-  void spill_equally(int beat);
   void try_rebalance();
   void find_exports(CDir *dir, 
                     double amount, 
