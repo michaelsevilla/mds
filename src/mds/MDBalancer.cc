@@ -114,14 +114,12 @@ static const char *LUA_PREPARE_HOWMUCH =
   "package.path = package.path .. ';/home/msevilla/code/ceph/src/mds/balancers/modules/?.lua;'\n"
   "require \"MDSBinPacker\"\n"
   "-- begin MDS_BAL_HOWMUCH --\n"
-  "strategies = "; //{\"half\", \"big_half\", \"small_half\", \"big_first\", \"big_first_plus1\", \"small_first\
-     ", \"small_first_plus1\"}\n
+  "strategies = ";
+  //{\"half\", \"big_half\", \"small_half\", \"big_first\", \"big_first_plus1\", \"small_first\", \"small_first_plus1\"}\n
 static const char *LUA_RETURN_HOWMUCH =
   "\n"
   "-- end   MDS_BAL_HOWMUCH --\n"
   "return MDSBinPacker.pack(strategies, arg)";
-
-
 
 /* This function DOES put the passed message before returning */
 int MDBalancer::proc_message(Message *m)
@@ -349,6 +347,8 @@ void MDBalancer::handle_heartbeat(MHeartbeat *m)
   {
     unsigned cluster_size = mds->get_mds_map()->get_num_in_mds();
     if (mds_load.size() == cluster_size) {
+      dump_subtree_loads();
+      pop_subtrees.clear();
       // let's go!
       //export_empties();  // no!
       switch(g_conf->mds_bal_lua) {
@@ -372,6 +372,80 @@ void MDBalancer::handle_heartbeat(MHeartbeat *m)
   m->put();
 }
 
+void MDBalancer::dump_subtree_loads() {
+  set<CDir*> subtrees;
+  
+  if (mds->mdcache->get_root()) {
+    list<CDir*> ls;
+    double authload = 0;
+    utime_t now = ceph_clock_now(g_ceph_context);
+    mds->mdcache->get_root()->get_dirfrags(ls);
+    for (list<CDir*>::iterator p = ls.begin();
+	 p != ls.end();
+	 ++p) {
+      string path;
+      (*p)->get_inode()->make_path_string_projected(path);
+      authload += (*p)->pop_auth_subtree_nested.meta_load(now, mds->mdcache->decayrate);
+      dout(2) << "[IRD,IWR metaload]=" << (*p)->pop_auth_subtree_nested  
+              << " fragsize=" << (*p)->get_frag_size() << " path=/root" << path << dendl;
+    }
+    dout(2) << " -- total auth=" << authload << dendl;
+  }
+  mds->mdcache->get_fullauth_subtrees(subtrees);
+  for (set<CDir*>::iterator it = subtrees.begin();
+       it != subtrees.end();
+       ++it) {
+    CDir *dir = *it;
+    pop_subtrees.clear();
+    subtree_loads(dir->get_inode());
+    size_t count = 0;
+    for (map<CDir*,double>::iterator popit = pop_subtrees.begin();
+         popit != pop_subtrees.end();
+         ++popit) {
+      pair<CDir*,double> popdir = *popit;
+      if (count <= (size_t) 10) {
+        if (popdir.second >= 0.5) {
+          string path;
+          popdir.first->get_inode()->make_path_string_projected(path);
+          dout(2) << "[IRD,IWR metaload]=" << popdir.first->pop_auth_subtree 
+                  << " fragsize=" << popdir.first->get_frag_size() << " path=/root" << path << dendl;
+          count++;
+        }
+      } else {
+        return;
+      }
+    }
+  }
+}
+
+void MDBalancer::subtree_loads(CInode *in) {
+  if (in != NULL) {
+    if (in->is_dir()) { 
+      utime_t now = ceph_clock_now(g_ceph_context);
+      list<CDir*> dirfrags;
+      in->get_dirfrags(dirfrags);
+      dout(10) << "found " << dirfrags.size() << " dirfrags for " << *in << dendl;
+      for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
+           dirfrags_it != dirfrags.end();
+           ++dirfrags_it) {
+        CDir *dir = *dirfrags_it;
+        // we don't want to look at snap directories
+        string path;
+        dir->get_inode()->make_path_string_projected(path);
+        if (path.find("~") != 0){
+          double metaload = dir->pop_auth_subtree.meta_load(now, mds->mdcache->decayrate);
+          dout(10) << " inserting load=" << metaload << " dir=" << *dir << dendl;
+          pop_subtrees.insert(make_pair(dir, metaload));
+          for (CDir::map_t::iterator direntry_it = dir->begin();
+               direntry_it != dir->end();
+               ++direntry_it) {
+            subtree_loads(direntry_it->second->get_linkage()->get_inode());
+          }
+        }
+      }
+    }
+  }
+}
 
 void MDBalancer::export_empties()
 {
@@ -733,11 +807,11 @@ void MDBalancer::custom_balancer(const char *log_file)
   mds->mdcache->migrator->clear_export_queue();
 
 
-  dout(2) << "- metaload = " << g_conf->mds_bal_metaload.c_str() << dendl;
-  dout(2) << "- mdsload  = " << mdsload << dendl;
-  dout(2) << "- when     = " << when << dendl;
-  dout(2) << "- where    = " << where << dendl;
-  dout(2) << "- howmuch  = " << g_conf->mds_bal_howmuch.c_str() << dendl;
+  dout(5) << "- metaload = " << g_conf->mds_bal_metaload.c_str() << dendl;
+  dout(5) << "- mdsload  = " << mdsload << dendl;
+  dout(5) << "- when     = " << when << dendl;
+  dout(5) << "- where    = " << where << dendl;
+  dout(5) << "- howmuch  = " << g_conf->mds_bal_howmuch.c_str() << dendl;
   if (!mdsload.compare("") || !when.compare("") || !where.compare("")) {
     dout(0) << "custom_balancer: missing mdsload/when/where script, not making migration decisions" << dendl;
     return;
