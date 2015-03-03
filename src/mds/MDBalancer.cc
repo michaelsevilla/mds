@@ -50,7 +50,7 @@ using std::vector;
 static const char *LUA_IMPORT =
   "package.path = package.path .. ';/home/msevilla/code/ceph/src/mds/balancers/modules/?.lua;'\n"
   "require \"MDSParser\"\n"
-  "whoami, MDSs = MDSParser.parse_args(arg)\n"
+  "whoami, MDSs, myuath, nfiles = MDSParser.parse_args(arg)\n"
   "i=whoami\n"
   "scale=1\n"
   "-- begin MDS_BAL_MDSLOAD --\n"
@@ -389,7 +389,7 @@ void MDBalancer::dump_subtree_loads() {
       dout(2) << "[IRD,IWR metaload]=" << (*p)->pop_auth_subtree_nested  
               << " fragsize=" << (*p)->get_frag_size() << " path=/root" << path << dendl;
     }
-    dout(2) << " -- total auth=" << authload << dendl;
+    dout(2) << " -- total nfiles=" << nfiles << " auth=" << authload << dendl;
   }
   mds->mdcache->get_fullauth_subtrees(subtrees);
   for (set<CDir*>::iterator it = subtrees.begin();
@@ -844,6 +844,11 @@ void MDBalancer::custom_balancer(const char *log_file)
   lua_pushnumber(L, index++);
   lua_pushnumber(L, authload);
   lua_settable(L, -3);
+
+  dout(5) << "pushing nfiles=" << nfiles << dendl;
+  lua_pushnumber(L, index++);
+  lua_pushnumber(L, nfiles);
+  lua_settable(L, -3);
  
   // Pass per-MDS sextuplets to Lua balancer
   for (mds_rank_t i=mds_rank_t(0); i < mds_rank_t(cluster_size); i++) {
@@ -1279,6 +1284,13 @@ void MDBalancer::find_exports(CDir *dir,
   }
 
 }
+
+void MDBalancer::hit_nfiles(double n) 
+{
+  nfiles += n;
+}
+
+
 
 void MDBalancer::hit_inode(utime_t now, CInode *in, int type, int who)
 {

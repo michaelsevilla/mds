@@ -60,6 +60,7 @@ class MDBalancer {
   map<mds_rank_t, float>       mds_meta_load;
   map<mds_rank_t, map<mds_rank_t, float> > mds_import_map;
   map<CDir*,double> pop_subtrees;
+  double nfiles;
 
   // per-epoch state
   double          my_load, target_load;
@@ -83,7 +84,7 @@ public:
   MDBalancer(MDS *m) : 
     mds(m),
     beat_epoch(0),
-    last_epoch_under(0), last_epoch_over(0), my_load(0.0), target_load(0.0) { }
+    last_epoch_under(0), last_epoch_over(0), nfiles(0), my_load(0.0), target_load(0.0) { }
   
   mds_load_t get_load(utime_t);
 
@@ -118,6 +119,7 @@ public:
   void subtract_export(class CDir *ex, utime_t now);
   void add_import(class CDir *im, utime_t now);
 
+  void hit_nfiles(double n);
   void hit_inode(utime_t now, class CInode *in, int type, int who=-1);
   void hit_dir(utime_t now, class CDir *dir, int type, int who=-1, double amount=1.0);
   void hit_recursive(utime_t now, class CDir *dir, int type, double amount, double rd_adj);
