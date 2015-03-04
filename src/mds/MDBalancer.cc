@@ -408,7 +408,9 @@ void MDBalancer::dump_subtree_loads() {
           string path;
           popdir.first->get_inode()->make_path_string_projected(path);
           dout(2) << "[IRD,IWR metaload]=" << popdir.first->pop_auth_subtree 
-                  << " fragsize=" << popdir.first->get_frag_size() << " path=/root" << path << dendl;
+                  << " fragsize=" << popdir.first->get_frag_size() 
+                  << " path=/root" << path 
+                  << " df=" << popdir.first->dirfrag() << dendl;
           count++;
         }
       } else {
@@ -1084,7 +1086,11 @@ void MDBalancer::try_rebalance()
     for (set<CDir*>::iterator pot = candidates.begin();
 	 pot != candidates.end();
 	 ++pot) {
-      if ((*pot)->get_inode()->is_stray()) continue;
+      if ((*pot)->get_inode()->is_stray()) {
+        continue;
+      } else {
+        dout(7) << "gah - this is a stray directory:" << **pot << dendl;
+      }
       find_exports(*pot, amount, exports, have, already_exporting);
       if (have > amount-MIN_OFFLOAD)
 	break;
