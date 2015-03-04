@@ -1083,17 +1083,55 @@ void MDBalancer::try_rebalance()
 
     list<CDir*> exports;
 
-    for (set<CDir*>::iterator pot = candidates.begin();
-	 pot != candidates.end();
-	 ++pot) {
-      if ((*pot)->get_inode()->is_stray()) {
-        continue;
-      } else {
-        dout(7) << "gah - this is a stray directory:" << **pot << dendl;
+    // MSEVILLA: should we move this entire auth?
+    bool done = false;
+    for (set<CDir*>::iterator root = candidates.begin();
+	 root != candidates.end();
+	 ++root) {
+      CDir *rootdir = *root;
+      list<CDir*> dirfrags;
+      rootdir->get_inode()->get_dirfrags(dirfrags);
+      for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
+           dirfrags_it != dirfrags.end();
+           ++dirfrags_it) {
+        CDir *subdir = *dirfrags_it;  
+        if (subdir->get_inode()->is_stray()) continue;
+        if (!subdir->is_auth()) continue;
+        if (already_exporting.count(subdir)) continue;
+        if (subdir->is_frozen()) continue;
+        double rootpop = subdir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+        
+        dout(7) << "consider exporting rootpop=" << rootpop 
+                << " amount-have=" << amount << "-" << have << "=" << amount-have 
+                << " root=" << *subdir << dendl;
+        string path;
+        subdir->get_inode()->make_path_string_projected(path);
+        if (path.find("~") != 0 && rootpop < amount - have) {
+          dout(7) << "it's small enough, let's migrate it." << dendl;
+          candidates.erase(root);
+          exports.push_back(subdir);
+          already_exporting.insert(subdir);
+          have += rootpop;    
+          if (have > amount-MIN_OFFLOAD) {
+            done = true;
+            break;
+          }
+        }
       }
-      find_exports(*pot, amount, exports, have, already_exporting);
-      if (have > amount-MIN_OFFLOAD)
-	break;
+      if (done)
+        break;
+    }
+
+    // Ok, drill down       
+    if (have < amount-MIN_OFFLOAD) {
+      for (set<CDir*>::iterator pot = candidates.begin();
+           pot != candidates.end();
+           ++pot) {
+        if ((*pot)->get_inode()->is_stray()) continue;
+        find_exports(*pot, amount, exports, have, already_exporting);
+        if (have > amount-MIN_OFFLOAD)
+          break;
+      }
     }
     //fudge = amount - have;
 
