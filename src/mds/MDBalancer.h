@@ -120,6 +120,7 @@ public:
   void add_import(class CDir *im, utime_t now);
 
   void hit_nfiles(double n);
+  void hit_nfiles_dir(CInode* in);
   void hit_inode(utime_t now, class CInode *in, int type, int who=-1);
   void hit_dir(utime_t now, class CDir *dir, int type, int who=-1, double amount=1.0);
   void hit_recursive(utime_t now, class CDir *dir, int type, double amount, double rd_adj);

@@ -8,11 +8,8 @@ module(..., package.seeall)
 function print_metrics(debug, mdss)
   f = io.open(debug, "a")
   io.output(f)
-  io.write("  [Lua5.2] load vector: <")
-  for i=1, #METRICS do io.write(string.format(" %s ", METRICS[i])) end
-  io.write(">\n")
   for i=1, #mdss do
-    io.write(string.format("  [Lua5.2]   MDS%d: load=%f <", i - 1, mdss[i]["load"]))
+    io.write(string.format("  [Lua5.2] MDS%d: load=%f <", i - 1, mdss[i]["load"]))
     for j=1, #METRICS do
       io.write(string.format(" %f", mdss[i][METRICS[j]]))
     end

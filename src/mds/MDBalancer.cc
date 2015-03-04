@@ -50,7 +50,7 @@ using std::vector;
 static const char *LUA_IMPORT =
   "package.path = package.path .. ';/home/msevilla/code/ceph/src/mds/balancers/modules/?.lua;'\n"
   "require \"MDSParser\"\n"
-  "whoami, MDSs, myuath, nfiles = MDSParser.parse_args(arg)\n"
+  "whoami, MDSs, myauth, nfiles = MDSParser.parse_args(arg)\n"
   "i=whoami\n"
   "scale=1\n"
   "-- begin MDS_BAL_MDSLOAD --\n"
@@ -70,7 +70,6 @@ static const char *LUA_PREPARE_WHEN =
   "end\n"
   "f = io.open(arg[1], \"a\")\n"
   "io.output(f)\n"
-  "io.write(string.format(\"  [Lua5.2] whoami=%d, total=%f, scale=%f\\n\", whoami, total, scale))\n"
   "targets = {}\n"
   "for i=1,#MDSs do targets[i] = 0 end\n"
   "-- begin MDS_BAL_WHEN --\n"
@@ -79,7 +78,7 @@ static const char *LUA_PREPARE_WHERE =
   "\n"
   " then \n"
   "-- end   MDS_BAL_WHEN --\n"
-  "   io.write(\"  [Lua5.2] migrating!\\n\")\n"
+  "   io.write(string.format(\"  [Lua5.2] migrating! (whoami=%d myauth=%f nfiles=%f total=%f scale=%f)\\n\", whoami, myauth, nfiles, total, scale))\n"
   "   E = {}; I = {}\n"
   "   for i=1,#MDSs do\n"
   "     metaload = MDSs[i][\"load\"]\n"
@@ -87,9 +86,11 @@ static const char *LUA_PREPARE_WHERE =
   "     else I[i] = metaload end\n"
   "   end\n"
   " else\n"
-  "   io.write(\"  [Lua5.2] not migrating!\\n\")\n"
-  "   MDSParser.print_metrics(arg[1], MDSs)\n"
   "   io.close(f)\n"
+  "   MDSParser.print_metrics(arg[1], MDSs)\n"
+  "   f = io.open(arg[1], \"a\")\n"
+  "   io.output(f)\n"
+  "   io.write(string.format(\"  [Lua5.2] not migrating! (whoami=%d myauth=%f nfiles=%f total=%f scale=%f)\\n\", whoami, myauth, nfiles, total, scale))\n"
   "   ret = \"\"\n"
   "   for i=1,#targets do ret = ret..targets[i]..\" \" end\n"
   "   return ret\n"
@@ -386,10 +387,9 @@ void MDBalancer::dump_subtree_loads() {
       string path;
       (*p)->get_inode()->make_path_string_projected(path);
       authload += (*p)->pop_auth_subtree_nested.meta_load(now, mds->mdcache->decayrate);
-      dout(2) << "[IRD,IWR metaload]=" << (*p)->pop_auth_subtree_nested  
+      dout(5) << "[IRD,IWR metaload]=" << (*p)->pop_auth_subtree_nested  
               << " fragsize=" << (*p)->get_frag_size() << " path=/root" << path << dendl;
     }
-    dout(2) << " -- total nfiles=" << nfiles << " auth=" << authload << dendl;
   }
   mds->mdcache->get_fullauth_subtrees(subtrees);
   for (set<CDir*>::iterator it = subtrees.begin();
@@ -404,7 +404,7 @@ void MDBalancer::dump_subtree_loads() {
          ++popit) {
       pair<CDir*,double> popdir = *popit;
       if (count <= (size_t) 10) {
-        if (popdir.second >= 0.5) {
+        if (popdir.second >= 0.0) {
           string path;
           popdir.first->get_inode()->make_path_string_projected(path);
           dout(2) << "[IRD,IWR metaload]=" << popdir.first->pop_auth_subtree 
@@ -418,29 +418,28 @@ void MDBalancer::dump_subtree_loads() {
   }
 }
 
-void MDBalancer::subtree_loads(CInode *in) {
-  if (in != NULL) {
-    if (in->is_dir()) { 
-      utime_t now = ceph_clock_now(g_ceph_context);
-      list<CDir*> dirfrags;
-      in->get_dirfrags(dirfrags);
-      dout(10) << "found " << dirfrags.size() << " dirfrags for " << *in << dendl;
-      for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
-           dirfrags_it != dirfrags.end();
-           ++dirfrags_it) {
-        CDir *dir = *dirfrags_it;
-        // we don't want to look at snap directories
-        string path;
-        dir->get_inode()->make_path_string_projected(path);
-        if (path.find("~") != 0){
-          double metaload = dir->pop_auth_subtree.meta_load(now, mds->mdcache->decayrate);
-          dout(10) << " inserting load=" << metaload << " dir=" << *dir << dendl;
-          pop_subtrees.insert(make_pair(dir, metaload));
-          for (CDir::map_t::iterator direntry_it = dir->begin();
-               direntry_it != dir->end();
-               ++direntry_it) {
-            subtree_loads(direntry_it->second->get_linkage()->get_inode());
-          }
+void MDBalancer::subtree_loads(CInode *in) 
+{
+  if (in != NULL && in->is_dir()) { 
+    utime_t now = ceph_clock_now(g_ceph_context);
+    list<CDir*> dirfrags;
+    in->get_dirfrags(dirfrags);
+    dout(10) << "found " << dirfrags.size() << " dirfrags for " << *in << dendl;
+    for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
+         dirfrags_it != dirfrags.end();
+         ++dirfrags_it) {
+      CDir *dir = *dirfrags_it;
+      // we don't want to look at snap directories
+      string path;
+      dir->get_inode()->make_path_string_projected(path);
+      if (path.find("~") != 0){
+        double metaload = dir->pop_auth_subtree.meta_load(now, mds->mdcache->decayrate);
+        dout(10) << " inserting load=" << metaload << " dir=" << *dir << dendl;
+        pop_subtrees.insert(make_pair(dir, metaload));
+        for (CDir::map_t::iterator direntry_it = dir->begin();
+             direntry_it != dir->end();
+             ++direntry_it) {
+          subtree_loads(direntry_it->second->get_linkage()->get_inode());
         }
       }
     }
@@ -1104,7 +1103,7 @@ void MDBalancer::try_rebalance()
     }
   }
 
-  dout(5) << "rebalance done" << dendl;
+  dout(5) << "rebalance done, nfiles=" << nfiles << dendl;
   show_imports();
 }
 
@@ -1290,7 +1289,31 @@ void MDBalancer::hit_nfiles(double n)
   nfiles += n;
 }
 
-
+void MDBalancer::hit_nfiles_dir(CInode *in)
+{
+  if (in != NULL) {
+    if (in->is_dir()) { 
+      list<CDir*> dirfrags;
+      in->get_dirfrags(dirfrags);
+      dout(10) << "found " << dirfrags.size() << " dirfrags for " << *in << dendl;
+      for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
+           dirfrags_it != dirfrags.end();
+           ++dirfrags_it) {
+        CDir *dir = *dirfrags_it;
+        string path;
+        dir->get_inode()->make_path_string_projected(path);
+        for (CDir::map_t::iterator direntry_it = dir->begin();
+             direntry_it != dir->end();
+             ++direntry_it) {
+          hit_nfiles_dir(direntry_it->second->get_linkage()->get_inode());
+        }
+      }
+    } else {
+      dout(10) << "decrementing nfiles for " << *in << dendl;
+      hit_nfiles(-1);
+    }
+  }
+}
 
 void MDBalancer::hit_inode(utime_t now, CInode *in, int type, int who)
 {
