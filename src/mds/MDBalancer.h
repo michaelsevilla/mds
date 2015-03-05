@@ -104,7 +104,7 @@ public:
   /*check if the monitor has recorded the current export targets;
     if it has then do the actual export. Otherwise send off our
     export targets message again*/
-  void subtree_loads(CInode *in);
+  void subtree_loads(CDir *dir);
   void dump_subtree_loads();
   void pause_balancer(const char *log);
   void custom_balancer(const char *log);

@@ -374,12 +374,12 @@ void MDBalancer::handle_heartbeat(MHeartbeat *m)
 }
 
 void MDBalancer::dump_subtree_loads() {
+  utime_t now = ceph_clock_now(g_ceph_context);
   set<CDir*> subtrees;
   
   if (mds->mdcache->get_root()) {
     list<CDir*> ls;
     double authload = 0;
-    utime_t now = ceph_clock_now(g_ceph_context);
     mds->mdcache->get_root()->get_dirfrags(ls);
     for (list<CDir*>::iterator p = ls.begin();
 	 p != ls.end();
@@ -396,14 +396,22 @@ void MDBalancer::dump_subtree_loads() {
        it != subtrees.end();
        ++it) {
     CDir *dir = *it;
+    string path;
+    dir->get_inode()->make_path_string_projected(path);
+    if (path.find("~") == 0) continue;
+
     pop_subtrees.clear();
-    subtree_loads(dir->get_inode());
+    double metaload = dir->pop_auth_subtree.meta_load(now, mds->mdcache->decayrate);
+    dout(10) << " inserting load of root dir=" << metaload << " dir=" << *dir << dendl;
+    pop_subtrees.insert(make_pair(dir, metaload)); // don't immediately recurse, could be dirfrag
+    subtree_loads(dir);
+
     size_t count = 0;
     for (map<CDir*,double>::iterator popit = pop_subtrees.begin();
          popit != pop_subtrees.end();
          ++popit) {
       pair<CDir*,double> popdir = *popit;
-      if (count <= (size_t) 10) {
+      if (count <= (size_t) 100) {
         if (popdir.second >= 0.0) {
           string path;
           popdir.first->get_inode()->make_path_string_projected(path);
@@ -420,30 +428,27 @@ void MDBalancer::dump_subtree_loads() {
   }
 }
 
-void MDBalancer::subtree_loads(CInode *in) 
+void MDBalancer::subtree_loads(CDir *dir) 
 {
-  if (in != NULL && in->is_dir()) { 
-    utime_t now = ceph_clock_now(g_ceph_context);
-    list<CDir*> dirfrags;
-    in->get_dirfrags(dirfrags);
-    dout(10) << "found " << dirfrags.size() << " dirfrags for " << *in << dendl;
-    for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
-         dirfrags_it != dirfrags.end();
-         ++dirfrags_it) {
-      CDir *dir = *dirfrags_it;
-      // we don't want to look at snap directories
-      string path;
-      dir->get_inode()->make_path_string_projected(path);
-      if (path.find("~") != 0){
-        double metaload = dir->pop_auth_subtree.meta_load(now, mds->mdcache->decayrate);
-        dout(10) << " inserting load=" << metaload << " dir=" << *dir << dendl;
-        pop_subtrees.insert(make_pair(dir, metaload));
-        for (CDir::map_t::iterator direntry_it = dir->begin();
-             direntry_it != dir->end();
-             ++direntry_it) {
-          subtree_loads(direntry_it->second->get_linkage()->get_inode());
-        }
-      }
+  utime_t now = ceph_clock_now(g_ceph_context);
+  for (CDir::map_t::iterator it = dir->begin();
+       it != dir->end();
+       ++it) {
+    CInode *in = it->second->get_linkage()->get_inode();
+    if (!in) continue;
+    if (!in->is_dir()) continue;
+    if (in->is_stray()) continue;
+    
+    list<CDir*> dfls;
+    in->get_dirfrags(dfls);
+    for (list<CDir*>::iterator p = dfls.begin();
+         p != dfls.end();
+         ++p) {
+      CDir *subdir = *p;
+      double metaload = subdir->pop_auth_subtree.meta_load(now, mds->mdcache->decayrate);
+      dout(10) << " inserting load=" << metaload << " dir=" << *subdir << dendl;
+      pop_subtrees.insert(make_pair(subdir, metaload));
+      subtree_loads(subdir);
     }
   }
 }
@@ -921,7 +926,6 @@ void MDBalancer::custom_balancer(const char *log_file)
   }
   else {
     strcpy(ret, lua_tostring(L, lua_gettop(L)));
-    dout(2) << " done executing, received: " << ret << dendl; 
   }
   lua_close(L);
 
@@ -939,6 +943,7 @@ void MDBalancer::custom_balancer(const char *log_file)
       m++;
     }
   }
+  dout(2) << " done executing, received: " << ret << " made targets=" << my_targets << dendl; 
   try_rebalance();
 }
 
@@ -1005,7 +1010,9 @@ void MDBalancer::try_rebalance()
     double amount = (*it).second;
 
     if (amount < MIN_OFFLOAD) continue;
-    if (amount / target_load < .2) continue;
+
+    // MSEVILLA
+    //if (amount / target_load < .2) continue;
 
     dout(5) << "want to send " << amount << " to mds." << target
       //<< " .. " << (*it).second << " * " << load_fac
@@ -1084,42 +1091,36 @@ void MDBalancer::try_rebalance()
     list<CDir*> exports;
 
     // MSEVILLA: should we move this entire auth?
+    // can I put myself (irrespective if I am a whole directory or dirfrag)
     bool done = false;
     for (set<CDir*>::iterator root = candidates.begin();
 	 root != candidates.end();
 	 ++root) {
-      CDir *rootdir = *root;
-      list<CDir*> dirfrags;
-      rootdir->get_inode()->get_dirfrags(dirfrags);
-      for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
-           dirfrags_it != dirfrags.end();
-           ++dirfrags_it) {
-        CDir *subdir = *dirfrags_it;  
-        if (subdir->get_inode()->is_stray()) continue;
-        if (!subdir->is_auth()) continue;
-        if (already_exporting.count(subdir)) continue;
-        if (subdir->is_frozen()) continue;
-        double rootpop = subdir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
-        
-        dout(7) << "consider exporting rootpop=" << rootpop 
-                << " amount-have=" << amount << "-" << have << "=" << amount-have 
-                << " root=" << *subdir << dendl;
-        string path;
-        subdir->get_inode()->make_path_string_projected(path);
-        if (path.find("~") != 0 && rootpop < amount - have) {
-          dout(7) << "it's small enough, let's migrate it." << dendl;
-          candidates.erase(root);
-          exports.push_back(subdir);
-          already_exporting.insert(subdir);
-          have += rootpop;    
-          if (have > amount-MIN_OFFLOAD) {
-            done = true;
-            break;
-          }
+      CDir *subdir = *root;
+      string path;
+      subdir->get_inode()->make_path_string_projected(path);
+      if (path.find("~") == 0) continue;
+      if (subdir->get_inode()->is_stray()) continue;
+      if (!subdir->is_auth()) continue;
+      if (already_exporting.count(subdir)) continue;
+      if (subdir->is_frozen()) continue;
+      double rootpop = subdir->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+      
+      dout(7) << "consider exporting rootpop=" << rootpop 
+              << " amount-have=" << amount << "-" << have << "=" << amount-have 
+              << " root=" << *subdir << dendl;
+      if (rootpop < amount - have) {
+        dout(7) << "it's small enough, let's migrate it." << dendl;
+        exports.push_back(subdir);
+        already_exporting.insert(subdir);
+        have += rootpop;    
+        candidates.erase(root);
+        if (have > amount-MIN_OFFLOAD) {
+          done = true;
+          break;
         }
       }
-      if (done)
-        break;
+      if (done) break;
     }
 
     // Ok, drill down       
@@ -1127,7 +1128,6 @@ void MDBalancer::try_rebalance()
       for (set<CDir*>::iterator pot = candidates.begin();
            pot != candidates.end();
            ++pot) {
-        if ((*pot)->get_inode()->is_stray()) continue;
         find_exports(*pot, amount, exports, have, already_exporting);
         if (have > amount-MIN_OFFLOAD)
           break;
