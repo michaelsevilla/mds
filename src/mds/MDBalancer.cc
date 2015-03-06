@@ -377,6 +377,7 @@ void MDBalancer::dump_subtree_loads() {
   utime_t now = ceph_clock_now(g_ceph_context);
   set<CDir*> subtrees;
   
+  // get the auth load  
   if (mds->mdcache->get_root()) {
     list<CDir*> ls;
     double authload = 0;
@@ -387,10 +388,12 @@ void MDBalancer::dump_subtree_loads() {
       string path;
       (*p)->get_inode()->make_path_string_projected(path);
       authload += (*p)->pop_auth_subtree_nested.meta_load(now, mds->mdcache->decayrate);
-      dout(5) << "[IRD,IWR metaload]=" << (*p)->pop_auth_subtree_nested  
+      dout(5) << "AUTH LOAD: [IRD,IWR metaload]=" << (*p)->pop_auth_subtree_nested  
               << " fragsize=" << (*p)->get_frag_size() << " path=/root" << path << dendl;
     }
   }
+
+  // get the rest of the load
   mds->mdcache->get_fullauth_subtrees(subtrees);
   for (set<CDir*>::iterator it = subtrees.begin();
        it != subtrees.end();
@@ -406,24 +409,17 @@ void MDBalancer::dump_subtree_loads() {
     pop_subtrees.insert(make_pair(dir, metaload)); // don't immediately recurse, could be dirfrag
     subtree_loads(dir);
 
-    size_t count = 0;
+    // print out the results
     for (map<CDir*,double>::iterator popit = pop_subtrees.begin();
          popit != pop_subtrees.end();
          ++popit) {
       pair<CDir*,double> popdir = *popit;
-      if (count <= (size_t) 100) {
-        if (popdir.second >= 0.0) {
-          string path;
-          popdir.first->get_inode()->make_path_string_projected(path);
-          dout(2) << "[IRD,IWR metaload]=" << popdir.first->pop_auth_subtree 
-                  << " fragsize=" << popdir.first->get_frag_size() 
-                  << " path=/root" << path 
-                  << " df=" << popdir.first->dirfrag() << dendl;
-          count++;
-        }
-      } else {
-        return;
-      }
+      string path;
+      popdir.first->get_inode()->make_path_string_projected(path);
+      dout(2) << "[IRD,IWR metaload]=" << popdir.first->pop_auth_subtree 
+              << " fragsize=" << popdir.first->get_frag_size() 
+              << " path=/root" << path 
+              << " df=" << popdir.first->dirfrag() << dendl;
     }
   }
 }
@@ -431,6 +427,7 @@ void MDBalancer::dump_subtree_loads() {
 void MDBalancer::subtree_loads(CDir *dir) 
 {
   utime_t now = ceph_clock_now(g_ceph_context);
+  // breadth first traversal, break when we have enough samples
   for (CDir::map_t::iterator it = dir->begin();
        it != dir->end();
        ++it) {
@@ -446,11 +443,32 @@ void MDBalancer::subtree_loads(CDir *dir)
          ++p) {
       CDir *subdir = *p;
       double metaload = subdir->pop_auth_subtree.meta_load(now, mds->mdcache->decayrate);
-      dout(10) << " inserting load=" << metaload << " dir=" << *subdir << dendl;
-      pop_subtrees.insert(make_pair(subdir, metaload));
-      subtree_loads(subdir);
+      if (metaload >= g_conf->mds_bal_print_dfs_size) {
+        dout(10) << " inserting load=" << metaload << " dir=" << *subdir << dendl;
+        pop_subtrees.insert(make_pair(subdir, metaload));
+        if (pop_subtrees.size() > (size_t) g_conf->mds_bal_print_dfs) return;
+      }
     }
   }
+
+  for (CDir::map_t::iterator it = dir->begin();
+       it != dir->end();
+       ++it) {
+    CInode *in = it->second->get_linkage()->get_inode();
+    if (!in) continue;
+    if (!in->is_dir()) continue;
+    if (in->is_stray()) continue;
+    
+    list<CDir*> dfls;
+    in->get_dirfrags(dfls);
+    for (list<CDir*>::iterator p = dfls.begin();
+         p != dfls.end();
+         ++p) {
+      subtree_loads(*p);
+      if (pop_subtrees.size() > (size_t) g_conf->mds_bal_print_dfs) return;
+    }
+  }
+
 }
 
 void MDBalancer::export_empties()
