@@ -6,3 +6,7 @@ mnt="/mnt/cephfs"
 echo "unmounting $mnt"
 sudo umount $mnt
 
+mnt="/mnt/cephfs2"
+echo "unmounting $mnt"
+sudo umount $mnt
+

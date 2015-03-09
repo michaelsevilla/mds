@@ -1897,7 +1897,7 @@ void Client::send_request(MetaRequest *request, MetaSession *session,
 
   session->requests.push_back(&request->item);
 
-  ldout(cct, 10) << "send_request " << *r << " to mds." << mds << dendl;
+  ldout(cct, 0) << "send_request " << *r << " to mds." << mds << dendl;
   session->con->send_message(r);
 }
 

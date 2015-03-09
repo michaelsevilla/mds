@@ -1110,7 +1110,6 @@ void MDBalancer::try_rebalance()
 
     // MSEVILLA: should we move this entire auth?
     // can I put myself (irrespective if I am a whole directory or dirfrag)
-    bool done = false;
     for (set<CDir*>::iterator root = candidates.begin();
 	 root != candidates.end();
 	 ++root) {
@@ -1133,12 +1132,8 @@ void MDBalancer::try_rebalance()
         already_exporting.insert(subdir);
         have += rootpop;    
         candidates.erase(root);
-        if (have > amount-MIN_OFFLOAD) {
-          done = true;
-          break;
-        }
+        if (have > amount-MIN_OFFLOAD) break;
       }
-      if (done) break;
     }
 
     // Ok, drill down       
@@ -1294,21 +1289,118 @@ void MDBalancer::find_exports(CDir *dir,
   dout(15) << "   sum " << subdir_sum << " / " << dir_pop << dendl;
 
   // grab some sufficiently big small items
+  // MSEVILLA
+  // Do all 6 permutations, real quick, of what to send
+  // Choose the one with the smallest net distance - this should help us emulate GIGA+
+  // Fix the drill down afterwards - we don't want to drill down until we ABSOLUTELY have to
   multimap<double,CDir*>::reverse_iterator it;
-  for (it = smaller.rbegin();
-       it != smaller.rend();
-       ++it) {
+  if (g_conf->mds_bal_lua == 1 && g_conf->mds_bal_howmuch.compare("")) {
+    if (smaller.size() <= 0) {
+      it = smaller.rbegin();
+      dout(10) << "not enough fragments to select from, size=" << smaller.size() << dendl;
+    } else {
+      char script[strlen(LUA_PREPARE_HOWMUCH) + 
+                  strlen(g_conf->mds_bal_howmuch.c_str()) + 
+                  strlen(LUA_RETURN_HOWMUCH)];
+      char ret[LINE_MAX];
+      int index = 1;
+      vector<CDir *> frags;
+      dout(2) << "using the Lua fragment selecter" << dendl;
 
-    if ((*it).first < midchunk)
-      break;  // try later
+      strcpy(script, LUA_PREPARE_HOWMUCH);
+      strcat(script, g_conf->mds_bal_howmuch.c_str());
+      strcat(script, LUA_RETURN_HOWMUCH);
 
-    dout(7) << "   taking smaller " << *(*it).second << dendl;
+      lua_State *L = luaL_newstate();
+      luaL_openlibs(L);
+      lua_newtable(L);
+      
+      dout(5) << "pushing log file: " << g_conf->log_file.c_str() << dendl;
+      lua_pushnumber(L, index++);
+      lua_pushstring(L, g_conf->log_file.c_str());
+      lua_settable(L, -3);
 
-    exports.push_back((*it).second);
-    already_exporting.insert((*it).second);
-    have += (*it).first;
-    if (have > needmin)
-      return;
+      dout(5) << "pushing target: " << amount << dendl;
+      lua_pushnumber(L, index++);
+      lua_pushnumber(L, amount);
+      lua_settable(L, -3);
+
+      for (it = smaller.rbegin();
+         it != smaller.rend();
+         ++it) {
+        dout(5) << "pushing dirfrag: " << (*it).first << dendl;
+        lua_pushnumber(L, index++);
+        lua_pushnumber(L, (*it).first);
+        lua_settable(L, -3);
+        frags.push_back((*it).second);
+      }
+      lua_setglobal(L, "arg");
+      if (luaL_dostring(L, script) > 0) {
+        dout(0) << " script failed: " << lua_tostring(L, lua_gettop(L)) << dendl;
+        char *start = script;
+        size_t nchars = 0;
+        size_t lines = 1;
+        for (size_t i = 0; i < strlen(script); i++) {
+          nchars++;
+          if (script[i] == '\n') {
+            char line[LINE_MAX] = "";
+            script[i] = ' ';
+            strncpy(line, start, nchars);
+            dout(10) << lines << ". " << line << dendl;
+            start = start + nchars;
+            nchars = 0;
+            lines++;
+          }
+        }
+      } else {
+        strcpy(ret, lua_tostring(L, lua_gettop(L)));
+      }
+      lua_close(L);
+      if (!strcmp(ret, "-1")) {
+        dout(2) << " received " << ret << "; not gonna send from frags.size=" << frags.size()<< dendl;;
+      } else {
+        char *start = ret;
+        size_t nchars = 0;
+        dout(2) << " received " << ret << "; gonna send from frags.size=" << frags.size()<< dendl;;
+        for (size_t j = 0; j < strlen(ret); j++) {
+          nchars++;
+          if (ret[j] == ' ' || ret[j] == '\n') {
+            char val[LINE_MAX] = "";
+            int df_index = -1;
+            double pop = -1;
+            
+            strncpy(val, start, nchars);
+            df_index = atof(val);
+            pop = frags[df_index]->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+
+            exports.push_back(frags[df_index]);
+            have += pop;
+            dout(10) << " df_index = " << df_index << " val=" << val << " pop=" << pop << " frag=" << *frags[df_index] << dendl;
+            already_exporting.insert(frags[df_index]);
+            start = start + nchars;
+            nchars = 0;
+          }
+        } 
+      }
+      if (have > needmin)
+        return;
+    }
+  } else {
+    for (it = smaller.rbegin();
+         it != smaller.rend();
+         ++it) {
+
+      if ((*it).first < midchunk)
+        break;  // try later
+
+      dout(7) << "   taking smaller " << *(*it).second << dendl;
+
+      exports.push_back((*it).second);
+      already_exporting.insert((*it).second);
+      have += (*it).first;
+      if (have > needmin)
+        return;
+    }
   }
 
   // apprently not enough; drill deeper into the hierarchy (if non-replicated)
