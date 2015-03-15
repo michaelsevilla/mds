@@ -1,5 +1,11 @@
 HELPERS="/home/msevilla/mds/scripts/helpers"
 ls
+for i in {0..200}; do 
+    if [ -a 15-$i ]; then
+        echo -n "file 15-$i replies ="; 
+        cat 15-$i | grep "\"reply\""; 
+    fi
+done
 echo "how many samples?"
 read SAMPLES
 

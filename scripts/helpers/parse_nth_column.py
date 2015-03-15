@@ -33,7 +33,10 @@ for f in openfiles:
     for line in f[0]:
         if "#" not in line:
             words = line.split()
-            f[1].append(words[int(cols[i])])
+            try:
+                f[1].append(words[int(cols[i])])
+            except:
+                break
     i += 1
 
 if avg:

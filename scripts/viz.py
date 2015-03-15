@@ -34,10 +34,11 @@ def run(command):
 
 # pull out the server IDs from the config file
 def parse_config():
-    if len(sys.argv) < 3: 
+    if live:
+        #config = "/user/msevilla/ceph-deploy/config.sh"
         config = "/user/msevilla/ceph-deploy/config.sh"
     else: 
-        config = sys.argv[2]
+        config = "./status/config.sh"
 
     try:
         f = open(config, 'r')
@@ -102,12 +103,20 @@ def get_fname(metric, daemon, component=None):
     elif metric == 'performance' or metric == '3':
         return prefix + "perf/replyc_issdm-" + daemon 
 
-def tailplot(f, s, d, metric, component=None):
-    filename = get_fname(metric, d, component)
-    if not f or not s or not d or not metric or not filename:
-        print "Not running because one of the fields is not present (f, s, d, metric, filename):", f, s, d, metric, filename
-        return
-    cmd = "tailplot -x 2 --field-format=2,date,HH:mm:ss --x-format=date,HH:mm:ss -f " + f + " -s " + s + " -t issdm-" + d + " " + filename
+def tailplot(f_noserver, s, daemons, metric, component=None):
+    cmd = "tailplot "
+    if isinstance(daemons, basestring): ds = daemons.split(" ")
+    else: ds = daemons
+    for d in ds:
+        f = ""
+        for field in f_noserver.split(","):
+            f += field + "-issdm-" + d + ","
+        f = f[0:len(f) - 1]
+        filename = get_fname(metric, d, component)
+        if not f_add_server or not s or not d or not metric or not filename:
+            print "Not running because one of the fields is not present (f, s, d, metric, filename):", f, s, d, metric, filename
+            return
+        cmd += filename + " -x 2 --field-format=2,date,HH:mm:ss --x-format=date,HH:mm:ss -f " + f + " -s " + s + " " 
     subprocess.Popen(cmd.split())
     print "Running:", cmd, "\n********** DONE **********\n\n"
 
@@ -179,7 +188,8 @@ def graph(d):
     if not os.path.exists(filename):
         whoops("Filename " + filename + " does not exist. You might have to make it manually.")
     if graphall:
-        for d in daemons: tailplot(f, s, d, metric, component)
+        #for d in daemons: tailplot(f, s, d, metric, component)
+        tailplot(f, s, daemons, metric, component)
     else:
         tailplot(f, s, daemon, metric, component)
     main()
