@@ -113,7 +113,7 @@ def tailplot(f_noserver, s, daemons, metric, component=None):
             f += field + "-issdm-" + d + ","
         f = f[0:len(f) - 1]
         filename = get_fname(metric, d, component)
-        if not f_add_server or not s or not d or not metric or not filename:
+        if not f or not s or not d or not metric or not filename:
             print "Not running because one of the fields is not present (f, s, d, metric, filename):", f, s, d, metric, filename
             return
         cmd += filename + " -x 2 --field-format=2,date,HH:mm:ss --x-format=date,HH:mm:ss -f " + f + " -s " + s + " " 
