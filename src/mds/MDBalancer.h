@@ -54,12 +54,12 @@ class MDBalancer {
 
   // todo
   set<dirfrag_t>   split_queue, merge_queue;
+  vector<CDir *>   subtrees;
 
   // per-epoch scatter/gathered info
   map<mds_rank_t, mds_load_t>  mds_load;
   map<mds_rank_t, float>       mds_meta_load;
   map<mds_rank_t, map<mds_rank_t, float> > mds_import_map;
-  map<CDir*,double> pop_subtrees;
   double nfiles;
 
   // per-epoch state
@@ -104,7 +104,7 @@ public:
   /*check if the monitor has recorded the current export targets;
     if it has then do the actual export. Otherwise send off our
     export targets message again*/
-  void subtree_loads(CDir *dir);
+  void subtree_loads(CDir *dir, int depth);
   void dump_subtree_loads();
   void pause_balancer(const char *log);
   void custom_balancer(const char *log);

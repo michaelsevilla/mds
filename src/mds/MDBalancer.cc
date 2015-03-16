@@ -349,7 +349,6 @@ void MDBalancer::handle_heartbeat(MHeartbeat *m)
     unsigned cluster_size = mds->get_mds_map()->get_num_in_mds();
     if (mds_load.size() == cluster_size) {
       dump_subtree_loads();
-      pop_subtrees.clear();
       // let's go!
       //export_empties();  // no!
       switch(g_conf->mds_bal_lua) {
@@ -375,9 +374,9 @@ void MDBalancer::handle_heartbeat(MHeartbeat *m)
 
 void MDBalancer::dump_subtree_loads() {
   utime_t now = ceph_clock_now(g_ceph_context);
-  set<CDir*> subtrees;
   
   // get the auth load  
+  subtrees.clear();
   if (mds->mdcache->get_root()) {
     list<CDir*> ls;
     double authload = 0;
@@ -394,38 +393,43 @@ void MDBalancer::dump_subtree_loads() {
   }
 
   // get the rest of the load
-  mds->mdcache->get_fullauth_subtrees(subtrees);
-  for (set<CDir*>::iterator it = subtrees.begin();
-       it != subtrees.end();
+  set<CDir*> roots;
+  mds->mdcache->get_fullauth_subtrees(roots);
+  for (set<CDir*>::iterator it = roots.begin();
+       it != roots.end();
        ++it) {
     CDir *dir = *it;
     string path;
     dir->get_inode()->make_path_string_projected(path);
+    subtrees.clear();
     if (path.find("~") == 0) continue;
 
-    pop_subtrees.clear();
-    double metaload = dir->pop_auth_subtree.meta_load(now, mds->mdcache->decayrate);
-    dout(10) << " inserting load of root dir=" << metaload << " dir=" << *dir << dendl;
-    pop_subtrees.insert(make_pair(dir, metaload)); // don't immediately recurse, could be dirfrag
-    subtree_loads(dir);
+    dout(10) << " inserting load of root dir=" << *dir << dendl;
+    subtrees.push_back(dir); // don't immediately recurse, could be dirfrag
+    subtree_loads(dir, 1);
 
     // print out the results
-    for (map<CDir*,double>::iterator popit = pop_subtrees.begin();
-         popit != pop_subtrees.end();
+    dout(10) << " printing out " << subtrees.size() << " subtrees" << dendl;
+    for (vector<CDir*>::iterator popit = subtrees.begin();
+         popit != subtrees.end();
          ++popit) {
-      pair<CDir*,double> popdir = *popit;
+      CDir *popdir = *popit;
       string path;
-      popdir.first->get_inode()->make_path_string_projected(path);
-      dout(2) << "[IRD,IWR metaload]=" << popdir.first->pop_auth_subtree 
-              << " fragsize=" << popdir.first->get_frag_size() 
-              << " path=/root" << path 
-              << " df=" << popdir.first->dirfrag() << dendl;
+      popdir->get_inode()->make_path_string_projected(path);
+      dout(2) << "/root" << path
+              << " " << popdir->pop_auth_subtree
+              << " df=" << popdir->dirfrag()
+              << " size=" << popdir->get_frag_size() << dendl;
     }
-  }
+    subtrees.clear();
+ }
+ subtrees.clear();
 }
 
-void MDBalancer::subtree_loads(CDir *dir) 
+void MDBalancer::subtree_loads(CDir *dir, int depth) 
 {
+  if (depth > g_conf->mds_bal_print_dfs_depth) return;
+
   utime_t now = ceph_clock_now(g_ceph_context);
   // breadth first traversal, break when we have enough samples
   for (CDir::map_t::iterator it = dir->begin();
@@ -443,10 +447,10 @@ void MDBalancer::subtree_loads(CDir *dir)
          ++p) {
       CDir *subdir = *p;
       double metaload = subdir->pop_auth_subtree.meta_load(now, mds->mdcache->decayrate);
-      if (metaload >= g_conf->mds_bal_print_dfs_size) {
-        dout(10) << " inserting load=" << metaload << " dir=" << *subdir << dendl;
-        pop_subtrees.insert(make_pair(subdir, metaload));
-        if (pop_subtrees.size() > (size_t) g_conf->mds_bal_print_dfs) return;
+      if (metaload >= g_conf->mds_bal_print_dfs_metaload) {
+        dout(10) << " pushing back load=" << metaload << " dir=" << *subdir << dendl;
+        subtrees.push_back(subdir);
+        if (subtrees.size() > (size_t) g_conf->mds_bal_print_dfs) return;
       }
     }
   }
@@ -464,8 +468,8 @@ void MDBalancer::subtree_loads(CDir *dir)
     for (list<CDir*>::iterator p = dfls.begin();
          p != dfls.end();
          ++p) {
-      subtree_loads(*p);
-      if (pop_subtrees.size() > (size_t) g_conf->mds_bal_print_dfs) return;
+      subtree_loads(*p, depth+1);
+      if (subtrees.size() > (size_t) g_conf->mds_bal_print_dfs) return;
     }
   }
 
