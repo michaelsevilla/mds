@@ -114,6 +114,11 @@ public:
                     list<CDir*>& exports, 
                     double& have,
                     set<CDir*>& already_exporting);
+  void fragment_selector_luahook(multimap<double, CDir*>,
+                                 double amount, 
+                                 list<CDir*>& exports, 
+                                 double& have,
+                                 set<CDir*>& already_exporting);
 
 
   void subtract_export(class CDir *ex, utime_t now);

@@ -5,7 +5,7 @@ types = ['MDSs', 'MONs', 'OSDs', 'CLIENTs']
 live = False
 
 def whoops(error):
-    print "Whoops. " + error
+    print "\n\nWhoops. " + error
     sys.exit(0)
 
 def retry_graph(d, error):
@@ -134,9 +134,8 @@ def graph(d):
     daemons = parse_config().get(d).split()
     daemon = raw_input_exit("Which " + d + ": " + str(daemons) + " or ALL?\n")
     metric = raw_input_exit("Pick metric type \n-- 1. utilization\n-- 2. perfcounter\n-- 3. performance\n")
-    if daemon == 'ALL':
-        daemon = daemons[0]
-        graphall = True
+    if daemon == 'ALL' or len(daemons) > 1: graphall = True
+    daemon = daemons[0]
     
     # pull out the value to graph from the options; options are listed with helper scripts
     if metric == 'utilization' or metric == '1':
