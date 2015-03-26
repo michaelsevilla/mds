@@ -50,6 +50,19 @@ using std::vector;
 static const char *LUA_IMPORT =
   "package.path = package.path .. ';/home/msevilla/code/ceph/src/mds/balancers/modules/?.lua;'\n"
   "require \"MDSParser\"\n"
+  "function WRState(x)\n"
+  "  stateF = io.open(\"/tmp/balancer_state\", \"w\")\n"
+  "  stateF:write(x)\n"
+  "  io.close(stateF)\n"
+  "end\n"
+  "function RDState(x)\n"
+  "  stateF = io.open(\"/tmp/balancer_state\", \"r\")"
+  "  state = stateF:read(\"*all\")\n"
+  "  io.close(stateF)\n"
+  "  return state\n"
+  "end\n"
+  "function Max(x, y) if x > y then return x else return y end end\n"
+  "function Min(x, y) if x < y then return x else return y end end\n"
   "whoami, MDSs, myauth, nfiles = MDSParser.parse_args(arg)\n"
   "i=whoami\n"
   "scale=1\n"
@@ -72,7 +85,7 @@ static const char *LUA_PREPARE_WHEN =
   "io.output(f)\n"
   "targets = {}\n"
   "for i=1,#MDSs do targets[i] = 0 end\n"
-  "-- begin MDS_BAL_WHEN --\n"
+  "-- begin MDS_BAL_WHEN --\n";
 static const char *LUA_PREPARE_WHERE =
   " \n"
   "-- end   MDS_BAL_WHEN --\n"
@@ -808,13 +821,13 @@ void MDBalancer::custom_balancer(const char *log_file)
   strcat(script, LUA_PREPARE_WHEN);
   replace(when.begin(), when.end(), '_', ' ');
   pos = 0;
-  while((pos = where.find("\\n", pos)) != string::npos)
-    where.replace(pos, 2, " \n");
+  while((pos = when.find("\\n", pos)) != string::npos)
+    when.replace(pos, 2, " \n");
   strcat(script, when.c_str());
   strcat(script, LUA_PREPARE_WHERE);
   replace(where.begin(), where.end(), '_', ' ');
   pos = 0;
-  while((pos = when.find("\\n", pos)) != string::npos)
+  while((pos = where.find("\\n", pos)) != string::npos)
     where.replace(pos, 2, " \n");
   strcat(script, where.c_str());
   strcat(script, LUA_RETURN);
