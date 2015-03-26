@@ -851,8 +851,8 @@ void MDBalancer::custom_balancer(const char *log_file)
   dout(5) << "- when     = " << when << dendl;
   dout(5) << "- where    = " << where << dendl;
   dout(5) << "- howmuch  = " << g_conf->mds_bal_howmuch.c_str() << dendl;
-  if (!mdsload.compare("") || !when.compare("") || !where.compare("")) {
-    dout(0) << "custom_balancer: missing mdsload/when/where script, not making migration decisions" << dendl;
+  if (!when.compare("") || !where.compare("")) {
+    dout(0) << "custom_balancer: missing when/where script, not making migration decisions" << dendl;
     return;
   }
 
