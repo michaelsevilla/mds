@@ -134,8 +134,10 @@ def graph(d):
     daemons = parse_config().get(d).split()
     daemon = raw_input_exit("Which " + d + ": " + str(daemons) + " or ALL?\n")
     metric = raw_input_exit("Pick metric type \n-- 1. utilization\n-- 2. perfcounter\n-- 3. performance\n")
-    if daemon == 'ALL' or len(daemons) > 1: graphall = True
-    daemon = daemons[0]
+    if daemon == 'ALL':
+        graphall = True
+        daemon = daemons[0]
+    print "the daemon is:", daemon 
     
     # pull out the value to graph from the options; options are listed with helper scripts
     if metric == 'utilization' or metric == '1':

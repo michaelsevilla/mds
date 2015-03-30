@@ -56,7 +56,7 @@ static const char *LUA_IMPORT =
   "  io.close(stateF)\n"
   "end\n"
   "function RDState(x)\n"
-  "  stateF = io.open(\"/tmp/balancer_state\", \"r\")"
+  "  stateF = io.open(\"/tmp/balancer_state\", \"r\")\n"
   "  state = stateF:read(\"*all\")\n"
   "  io.close(stateF)\n"
   "  return state\n"

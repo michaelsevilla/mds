@@ -1,5 +1,5 @@
 FUDGE = 0.001
-METRICS = {"METALoad.auth", "METALoad.all", "req", "q", "cpu", "mem"}
+METRICS = {"metaload.auth", "metaload.all", "req", "q", "cpu", "mem"}
 module(..., package.seeall)
 
 -- name:   print_metrics
@@ -50,7 +50,7 @@ function parse_args(arg)
     if i % #METRICS == 0 then 
       nmds = nmds + 1
       mdss[nmds] = {}
-      mdss[nmds]["MDSLoad"] = 0
+      mdss[nmds]["load"] = 0
     end
     mdss[nmds][METRICS[(i % #METRICS) + 1]] = metrics[i+1]
     i = i + 1
