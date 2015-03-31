@@ -246,9 +246,54 @@ mds_load_t MDBalancer::get_load(utime_t now)
   load.req_rate = mds->get_req_rate();
   load.queue_len = mds->messenger->get_dispatch_queue_len();
 
-  ifstream cpu("/proc/loadavg");
-  if (cpu.is_open())
-    cpu >> load.cpu_load_avg;
+  // MSEVILLA
+  //ifstream cpu("/proc/loadavg");
+  //cpu >> load.cpu_load_avg;
+  ifstream cpu("/proc/stat");
+  if (cpu.is_open()) {
+    map<string, double> procstat;
+    string temp;
+    cpu >> temp;
+    cpu >> temp;
+    procstat.insert(pair<string,double>("usr", atof(temp.c_str())));
+    cpu >> temp;
+    procstat.insert(pair<string,double>("nice", atof(temp.c_str())));
+    cpu >> temp;
+    procstat.insert(pair<string,double>("sys", atof(temp.c_str())));
+    cpu >> temp;
+    procstat.insert(pair<string,double>("idle", atof(temp.c_str())));
+    cpu >> temp;
+    procstat.insert(pair<string,double>("iowait", atof(temp.c_str())));
+    cpu >> temp;
+    procstat.insert(pair<string,double>("irq", atof(temp.c_str())));
+    cpu >> temp;
+    procstat.insert(pair<string,double>("softirq", atof(temp.c_str())));
+    cpu >> temp;
+    procstat.insert(pair<string,double>("steal", atof(temp.c_str())));
+    cpu.close();
+    
+    double cpu_total = 0;
+    double cpu_work = 0;
+    for (map<string, double>:: iterator it = procstat.begin();
+         it != procstat.end();
+         it++) {
+      cpu_total += it->second;
+      if (!it->first.compare("usr") ||
+          !it->first.compare("sys") ||
+          !it->first.compare("nice"))
+        cpu_work += it->second;
+    }
+    // Save it if it is a legit sample.
+    double cpu_work_period = cpu_work - cpu_work_prev;
+    double cpu_total_period = cpu_total - cpu_total_prev;
+    if (cpu_total_period > 100 && cpu_work_period > 100) {
+      cpu_load_avg = 100*cpu_work_period/cpu_total_period;
+      cpu_work_prev = cpu_work;
+      cpu_total_prev = cpu_total;
+      dout(15) << "get_load cpu=" << cpu_work_period << "/" << cpu_total_period << "=" << load.cpu_load_avg << dendl;
+    }
+    load.cpu_load_avg = cpu_load_avg;
+  }
 
   dout(15) << "get_load " << load << dendl;
   return load;
@@ -1147,7 +1192,11 @@ void MDBalancer::try_rebalance()
         smaller.insert(pair<double,CDir*>(rootpop, subdir));
       }
     }
-    fragment_selector_luahook(smaller, amount, exports, have, already_exporting); 
+    if (g_conf->mds_bal_lua == 1 && g_conf->mds_bal_howmuch.compare("")) {
+        fragment_selector_luahook(smaller, amount, exports, have, already_exporting); 
+        if (have > amount-MIN_OFFLOAD)
+            return;
+    }
     smaller.clear();
 
     // Ok, drill down       

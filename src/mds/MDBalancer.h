@@ -39,6 +39,7 @@ extern "C"{
     #include <lua5.2/lua.h>
 }
 
+
 class MDBalancer {
  protected:
   MDS *mds;
@@ -51,6 +52,11 @@ class MDBalancer {
   utime_t last_fragment;
   utime_t last_sample;    
   utime_t rebalance_time; //ensure a consistent view of load for rebalance
+  // MSEVILLA: for the customized CPU measurements
+  double cpu_load_avg;
+  double cpu_work_prev;
+  double cpu_total_prev;
+  
 
   // todo
   set<dirfrag_t>   split_queue, merge_queue;
@@ -84,7 +90,7 @@ public:
   MDBalancer(MDS *m) : 
     mds(m),
     beat_epoch(0),
-    last_epoch_under(0), last_epoch_over(0), nfiles(0), my_load(0.0), target_load(0.0) { }
+    last_epoch_under(0), last_epoch_over(0), cpu_load_avg(0), cpu_work_prev(0), cpu_total_prev(0), nfiles(0), my_load(0.0), target_load(0.0) { }
   
   mds_load_t get_load(utime_t);
 
