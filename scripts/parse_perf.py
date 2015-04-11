@@ -11,14 +11,22 @@ if len(sys.argv) < 3:
     sys.exit(0)
 
 l = 0
-f = open(sys.argv[1])
+try:
+    f = open(sys.argv[1])
+except IOError:
+    #print "couldn't find file", sys.argv[1]
+    sys.exit(0)
 c = sys.argv[2]
 if len(sys.argv) > 3:
     l = sys.argv[3]
 
-
-time = datetime.now()
-perf_counters = json.load(f)
+try:
+    perf_counters = json.load(f)
+except:
+    #print "json is screwed up file", sys.argv[1]
+    sys.exit(0)
+#time = datetime.now()
+time = perf_counters["time"].split()[3]
 
 count = 3
 if l == "legend":
@@ -31,7 +39,7 @@ if l == "legend":
                     sys.stdout.write(i + " ")
                     count += 1
 elif l == "reply_latency":
-    print time, 
+    print "date", time, 
     for component in perf_counters:
         if c == component:
             counters = perf_counters[component]
@@ -43,7 +51,7 @@ elif l == "component":
     for component in perf_counters:
         print component,
 else:
-    print time,
+    print "date", time,
     for component in perf_counters:
         if c == component:
             counters = perf_counters[component]

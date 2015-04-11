@@ -32,6 +32,7 @@
 #include <iostream>
 #include <vector>
 #include <map>
+#include <string.h>
 using std::map;
 using std::vector;
 
@@ -63,9 +64,8 @@ static const char *LUA_IMPORT =
   "end\n"
   "function Max(x, y) if x > y then return x else return y end end\n"
   "function Min(x, y) if x < y then return x else return y end end\n"
-  "whoami, MDSs, myauth, nfiles = MDSParser.parse_args(arg)\n"
+  "whoami, MDSs, authmetaload, nfiles, allmetaload = MDSParser.parse_args(arg)\n"
   "i=whoami\n"
-  "scale=1\n"
   "-- begin MDS_BAL_MDSLOAD --\n"
   "MDSs[whoami][\"load\"] = ";
 static const char *LUA_CALCULATE_LOAD =
@@ -78,8 +78,8 @@ static const char *LUA_CALCULATE_LOAD =
 static const char *LUA_PREPARE_WHEN =
   "\n"
   "  -- end   MDS_BAL_MDSLOAD --\n"
-  "  MDSs[i][\"load\"] = load*scale\n"
-  "  total = total + load*scale\n"
+  "  MDSs[i][\"load\"] = load\n"
+  "  total = total + load\n"
   "end\n"
   "f = io.open(arg[1], \"a\")\n"
   "io.output(f)\n"
@@ -89,7 +89,7 @@ static const char *LUA_PREPARE_WHEN =
 static const char *LUA_PREPARE_WHERE =
   " \n"
   "-- end   MDS_BAL_WHEN --\n"
-  "   io.write(string.format(\"  [Lua5.2] migrating! (whoami=%d myauth=%f nfiles=%f total=%f scale=%f)\\n\", whoami, myauth, nfiles, total, scale))\n"
+  "   io.write(string.format(\"  [Lua5.2] migrating! (whoami=%d authmetaload=%f nfiles=%f allmetaload=%f total=%f)\\n\", whoami, authmetaload, nfiles, allmetaload, total))\n"
   "   E = {}; I = {}\n"
   "   for i=1,#MDSs do\n"
   "     metaload = MDSs[i][\"load\"]\n"
@@ -101,7 +101,7 @@ static const char *LUA_PREPARE_WHERE =
   "   MDSParser.print_metrics(arg[1], MDSs)\n"
   "   f = io.open(arg[1], \"a\")\n"
   "   io.output(f)\n"
-  "   io.write(string.format(\"  [Lua5.2] not migrating! (whoami=%d myauth=%f nfiles=%f total=%f scale=%f)\\n\", whoami, myauth, nfiles, total, scale))\n"
+  "   io.write(string.format(\"  [Lua5.2] not migrating! (whoami=%d authmetaload=%f nfiles=%f allmetaload=%f total=%f)\\n\", whoami, authmetaload, nfiles, allmetaload, total))\n"
   "   ret = \"\"\n"
   "   for i=1,#targets do ret = ret..targets[i]..\" \" end\n"
   "   return ret\n"
@@ -229,7 +229,6 @@ double mds_load_t::mds_load()
 mds_load_t MDBalancer::get_load(utime_t now)
 {
   mds_load_t load(now);
-
   if (mds->mdcache->get_root()) {
     list<CDir*> ls;
     mds->mdcache->get_root()->get_dirfrags(ls);
@@ -451,6 +450,7 @@ void MDBalancer::dump_subtree_loads() {
   // get the rest of the load
   set<CDir*> roots;
   mds->mdcache->get_fullauth_subtrees(roots);
+  total_meta_load = 0;
   for (set<CDir*>::iterator it = roots.begin();
        it != roots.end();
        ++it) {
@@ -462,6 +462,7 @@ void MDBalancer::dump_subtree_loads() {
 
     dout(10) << " inserting load of root dir=" << *dir << dendl;
     subtrees.push_back(dir); // don't immediately recurse, could be dirfrag
+    total_meta_load += dir->pop_auth_subtree.meta_load(now, mds->mdcache->decayrate);
     subtree_loads(dir, 1);
 
     // print out the results
@@ -915,23 +916,28 @@ void MDBalancer::custom_balancer(const char *log_file)
   lua_pushnumber(L, ((int) whoami) + 1);
   lua_settable(L, -3);
 
-  double authload = 0;
+  double authmetaload = 0;
   list<CDir*> ls;
   mds->mdcache->get_root()->get_dirfrags(ls);
   for (list<CDir*>::iterator p = ls.begin();
        p != ls.end();
        p++) {
-    dout(10) << "   - for p=" << **p << "authload=" << authload << dendl;
-    authload += (*p)->pop_auth_subtree_nested.meta_load(rebalance_time, mds->mdcache->decayrate);
+    dout(10) << "   - for p=" << **p << "authmetaload=" << authmetaload << dendl;
+    authmetaload += (*p)->pop_auth_subtree_nested.meta_load(rebalance_time, mds->mdcache->decayrate);
   }
-  dout(5) << "pushing current auth metadata load=" << authload << dendl;
+  dout(5) << "pushing current auth metadata load=" << authmetaload << dendl;
   lua_pushnumber(L, index++);
-  lua_pushnumber(L, authload);
+  lua_pushnumber(L, authmetaload);
   lua_settable(L, -3);
 
   dout(5) << "pushing nfiles=" << nfiles << dendl;
   lua_pushnumber(L, index++);
   lua_pushnumber(L, nfiles);
+  lua_settable(L, -3);
+
+  dout(5) << "pushing current all metadata load=" << total_meta_load << dendl;
+  lua_pushnumber(L, index++);
+  lua_pushnumber(L, total_meta_load);
   lua_settable(L, -3);
  
   // Pass per-MDS sextuplets to Lua balancer
@@ -1192,10 +1198,18 @@ void MDBalancer::try_rebalance()
         smaller.insert(pair<double,CDir*>(rootpop, subdir));
       }
     }
-    if (g_conf->mds_bal_lua == 1 && g_conf->mds_bal_howmuch.compare("")) {
-        fragment_selector_luahook(smaller, amount, exports, have, already_exporting); 
-        if (have > amount-MIN_OFFLOAD)
-            return;
+    if (g_conf->mds_bal_lua == 1 && g_conf->mds_bal_howmuch.compare(""))
+      fragment_selector_luahook(smaller, amount, exports, have, already_exporting); 
+    else {
+      // Use the old balancer policy (send off biggest dirfrags)
+      for (multimap<double,CDir*>::reverse_iterator it = smaller.rbegin();
+           it != smaller.rend();
+           ++it) {
+        exports.push_back((*it).second);
+        have += (*it).first;
+        if (have > amount - MIN_OFFLOAD)
+          break;
+      }
     }
     smaller.clear();
 
@@ -1204,6 +1218,8 @@ void MDBalancer::try_rebalance()
       for (set<CDir*>::iterator pot = candidates.begin();
            pot != candidates.end();
            ++pot) {
+        // if we aren't already exporting 
+        if (already_exporting.count(*pot)) continue;
         if (find(exports.begin(), exports.end(), *pot) == exports.end())
           find_exports(*pot, amount, exports, have, already_exporting);
         if (have > amount-MIN_OFFLOAD)
@@ -1495,27 +1511,21 @@ void MDBalancer::fragment_selector_luahook(multimap<double, CDir*> smaller,
     if (!strcmp(ret, "-1")) {
       dout(2) << " received " << ret << "; not gonna send from frags.size=" << frags.size()<< dendl;;
     } else {
-      char *start = ret;
-      size_t nchars = 0;
-      dout(2) << " received " << ret << "; gonna send from frags.size=" << frags.size()<< dendl;;
-      for (size_t j = 0; j < strlen(ret); j++) {
-        nchars++;
-        if (ret[j] == ' ' || ret[j] == '\n') {
-          char val[LINE_MAX] = "";
-          int df_index = -1;
-          double pop = -1;
-          
-          strncpy(val, start, nchars);
-          df_index = atof(val);
-          pop = frags[df_index]->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
-
-          exports.push_back(frags[df_index]);
-          have += pop;
-          dout(10) << " df_index = " << df_index << " val=" << val << " pop=" << pop << " frag=" << *frags[df_index] << dendl;
-          already_exporting.insert(frags[df_index]);
-          start = start + nchars;
-          nchars = 0;
-        }
+      dout(2) << " received " << ret << "; gonna send from frags.size=" << frags.size()<< dendl;
+      char *token = strtok(ret, " ");
+      while (token != NULL) {
+        char val[LINE_MAX] = "";
+        int df_index = -1;
+        double pop = -1;
+       
+        strcpy(val, token);
+        df_index = atof(val) - 1;
+        pop = frags[df_index]->pop_auth_subtree.meta_load(rebalance_time, mds->mdcache->decayrate);
+        exports.push_back(frags[df_index]);
+        have += pop;
+        dout(10) << " df_index = " << df_index << " val=" << val << " pop=" << pop << " frag=" << *frags[df_index] << dendl;
+        already_exporting.insert(frags[df_index]);
+        token = strtok(NULL, " ");
       } 
     }
   }
@@ -1533,7 +1543,7 @@ void MDBalancer::hit_nfiles_dir(CInode *in)
     if (in->is_dir()) { 
       list<CDir*> dirfrags;
       in->get_dirfrags(dirfrags);
-      dout(10) << "found " << dirfrags.size() << " dirfrags for " << *in << dendl;
+      dout(20) << "found " << dirfrags.size() << " dirfrags for " << *in << dendl;
       for (list<CDir*>::iterator dirfrags_it = dirfrags.begin();
            dirfrags_it != dirfrags.end();
            ++dirfrags_it) {
@@ -1547,7 +1557,7 @@ void MDBalancer::hit_nfiles_dir(CInode *in)
         }
       }
     } else {
-      dout(10) << "decrementing nfiles for " << *in << dendl;
+      dout(20) << "decrementing nfiles for " << *in << dendl;
       hit_nfiles(-1);
     }
   }

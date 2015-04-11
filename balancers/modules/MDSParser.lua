@@ -1,5 +1,5 @@
 FUDGE = 0.001
-METRICS = {"metaload.auth", "metaload.all", "req", "q", "cpu", "mem"}
+METRICS = {"auth", "all", "req", "q", "cpu", "mem"}
 module(..., package.seeall)
 
 -- name:   print_metrics
@@ -27,10 +27,11 @@ end
 function parse_args(arg)
   debug = arg[1]
   whoami = arg[2]
-  myauth = arg[3]
+  authmetaload = arg[3]
   nfiles = arg[4]
+  allmetaload = arg[5]
   metrics = {}
-  if (#arg - 4) % #METRICS ~= 0 then
+  if (#arg - 5) % #METRICS ~= 0 then
     f = io.open(debug, "a")
     io.output(f)
     io.write("  [Lua5.2] Didn't receive all load metrics for all MDSs\n")
@@ -39,7 +40,7 @@ function parse_args(arg)
   end
   i = 1
   for k,v in ipairs(arg) do 
-    if k > 4 then  
+    if k > 5 then  
       metrics[i] = v 
       i = i + 1
     end 
@@ -55,7 +56,7 @@ function parse_args(arg)
     mdss[nmds][METRICS[(i % #METRICS) + 1]] = metrics[i+1]
     i = i + 1
   end
-  return whoami, mdss, myauth, nfiles
+  return whoami, mdss, authmetaload, nfiles, allmetaload
 end
 
 

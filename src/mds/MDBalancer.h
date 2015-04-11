@@ -56,6 +56,7 @@ class MDBalancer {
   double cpu_load_avg;
   double cpu_work_prev;
   double cpu_total_prev;
+  double total_meta_load;
   
 
   // todo
@@ -90,7 +91,7 @@ public:
   MDBalancer(MDS *m) : 
     mds(m),
     beat_epoch(0),
-    last_epoch_under(0), last_epoch_over(0), cpu_load_avg(0), cpu_work_prev(0), cpu_total_prev(0), nfiles(0), my_load(0.0), target_load(0.0) { }
+    last_epoch_under(0), last_epoch_over(0), cpu_load_avg(0), cpu_work_prev(0), cpu_total_prev(0), total_meta_load(0), nfiles(0), my_load(0.0), target_load(0.0) { }
   
   mds_load_t get_load(utime_t);
 
