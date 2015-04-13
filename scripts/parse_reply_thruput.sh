@@ -1,5 +1,6 @@
 HELPERS="/home/msevilla/mds/scripts/helpers"
 SAMPLES=0
+#set -e
 for i in {0..1000}; do 
     if [ -a 15-$i ]; then
         #echo -n "file 15-$i replies ="; 

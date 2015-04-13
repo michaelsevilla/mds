@@ -26,7 +26,10 @@ except:
     #print "json is screwed up file", sys.argv[1]
     sys.exit(0)
 #time = datetime.now()
-time = perf_counters["time"].split()[3]
+try:
+    time = perf_counters["time"].split()[3]
+except:
+    pass
 
 count = 3
 if l == "legend":

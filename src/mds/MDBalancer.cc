@@ -46,7 +46,8 @@ using std::vector;
 
 #define MIN_LOAD    50   //  ??
 #define MIN_REEXPORT 5  // will automatically reexport
-#define MIN_OFFLOAD 10   // point at which i stop trying, close enough
+// MSEVILLA
+//#define MIN_OFFLOAD 10   // point at which i stop trying, close enough
 
 static const char *LUA_IMPORT =
   "package.path = package.path .. ';/home/msevilla/code/ceph/src/mds/balancers/modules/?.lua;'\n"
@@ -1043,6 +1044,7 @@ void MDBalancer::pause_balancer(const char *log_file)
 
 void MDBalancer::try_rebalance()
 {
+  static int MIN_OFFLOAD = g_conf->mds_bal_minoffload;
   if (!check_targets())
     return;
 
@@ -1195,6 +1197,7 @@ void MDBalancer::try_rebalance()
               << " root=" << *subdir << dendl;
       if (rootpop < amount - have) {
         dout(7) << "it's small enough, let's kick it off to the fragment selector." << dendl;
+        if (already_exporting.count(subdir)) continue;
         smaller.insert(pair<double,CDir*>(rootpop, subdir));
       }
     }
@@ -1405,22 +1408,17 @@ void MDBalancer::find_exports(CDir *dir,
 
   // ok fine, use smaller bits
   if (g_conf->mds_bal_lua != 1 || !g_conf->mds_bal_howmuch.compare("")) {
-    fragment_selector_luahook(smaller, amount, exports, have, already_exporting); 
-    if (have > needmin)
-      return;
-    it = smaller.rbegin();
-  }
- 
-  for (;
-       it != smaller.rend();
-       ++it) {
-    dout(7) << "   taking (much) smaller " << it->first << " " << *(*it).second << dendl;
+    for (;
+         it != smaller.rend();
+         ++it) {
+      dout(7) << "   taking (much) smaller " << it->first << " " << *(*it).second << dendl;
 
-    exports.push_back((*it).second);
-    already_exporting.insert((*it).second);
-    have += (*it).first;
-    if (have > needmin)
-      return;
+      exports.push_back((*it).second);
+      already_exporting.insert((*it).second);
+      have += (*it).first;
+      if (have > needmin)
+        return;
+    }
   }
 
   // ok fine, drill into replicated dirs
