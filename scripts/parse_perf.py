@@ -4,6 +4,8 @@ import json
 from datetime import time, datetime
 
 if len(sys.argv) < 3:
+    print "@input:  performance counters (JSON)"
+    print "@output: 1 line of tab-delimited file"
     print "Convert JSON values to space delimited file (good for graphing)"
     print "USAGE:", sys.argv[0], "<file> <component> (legend|reply_latency|component)"
     print " - legend: for copying and pasting into tailplot"

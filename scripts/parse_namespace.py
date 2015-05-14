@@ -41,9 +41,12 @@ for line in f:
         date = words[0]
         now = words[1].split('.')[0]
         if time != "" and now.split(':')[2] != time.split(':')[2]:
-            print date, now, 
-            for t in types: print reqs[t],
-            print
+            #print date, now, 
+            #for t in types: print reqs[t],
+            #print
             for t in types: reqs[t] = 0
             time = now
+        if "mkdir" in line: 
+            path = words[8]
+            print "path=",path
 f.close()
