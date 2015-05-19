@@ -10,12 +10,12 @@ Scripts for deploying and measuring CephFS with multiple MDSs. These scripts you
 
 Going into each directory and running:
 
-./graph.sh
+`./run.sh`
 
 will produce the corresponding figure.
 
 Contents
-- balancers\t   custom metadata balancers and the environment constructors for Mantle
+- balancers     custom metadata balancers and the environment constructors for Mantle
 - debian        used to create .deb packages
 - experiments   experiment specification formats (ESF)
 - graphs        scripts to generate graphs from raw data
