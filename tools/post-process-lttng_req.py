@@ -40,10 +40,6 @@ requests = {
         int("0x01503", 16) : {"op" : "CEPH_MDS_OP_FLUSH"}
 }
 
-# Initialize some stuff
-for r in requests:
-    requests[r]["latency"] = []
-
 # Taken from: https://gordoncluster.wordpress.com/2014/02/13/python-numpy-how-to-generate-moving-averages-efficiently-part-2/
 def movingavg(values, window):
     weights = numpy.repeat(1.0, window)/window
@@ -55,19 +51,45 @@ if len(sys.argv) < 2:
     print("Print out distribution of the request latencies")
     print("USAGE:", sys.argv[0], "<file> [window]")
     sys.exit(0)
-
 trace = sys.argv[1]
 try:
-    window = sys.argv[2]
+    window = int(sys.argv[2])
 except:
     window = 1
 
+# initialize some stuff
+for r in requests:
+    requests[r]["latency"] = []
 traces = TraceCollection()
 ret = traces.add_trace(trace, "ctf")
+
+servicers = {}
 for event in traces.events:
     time, addr, type = event.timestamp, event["addr"], event["type"]
     pthread_id  = event["pthread_id"]
+    #print(requests[type]["op"] + " " + str(time))
     
-    # get the thread of client
-    print("[" + str(time) + ", pthread_id=" + str(pthread_id) + "] " + event.name + " " + requests[type]["op"])
-    
+    # get the thread servicing the client request
+    servicer = (pthread_id, addr)
+    if event.name == "mds:req_enter":
+        servicers[servicer] = time
+    elif event.name == "mds:req_exit":
+        try:
+            latency = time - servicers[servicer]
+            del servicers[servicer]
+            #print(requests[type]["op"] + "\t" + str(latency))
+            requests[type]["latency"].append(latency)
+        except KeyError:
+            continue
+
+for r in requests:
+    if len(requests[r]["latency"]) > 0:
+        # get the regular latencies
+        print(requests[r]["op"] + ": ", end="")
+        for l in requests[r]["latency"]:
+            print(str(l) + " ", end="")
+        print("")
+
+        # get the moving average of those latencies
+        request_movingavg = movingavg(requests[r]["latency"], window)
+        print(requests[r]["op"] + " (mvavg): " + str(request_movingavg))
