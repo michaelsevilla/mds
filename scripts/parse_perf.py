@@ -25,12 +25,12 @@ if len(sys.argv) > 3:
 try:
     perf_counters = json.load(f)
 except:
-    #print "json is screwed up file", sys.argv[1]
+    #print "file", sys.argv[1], "is not json"
     sys.exit(0)
-#time = datetime.now()
 try:
     time = perf_counters["time"].split()[3]
 except:
+    time = "NULLTIME"
     pass
 
 count = 3

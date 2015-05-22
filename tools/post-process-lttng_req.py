@@ -82,14 +82,20 @@ for event in traces.events:
         except KeyError:
             continue
 
+# get the moving averages
 for r in requests:
     if len(requests[r]["latency"]) > 0:
-        # get the regular latencies
-        print(requests[r]["op"] + ": ", end="")
-        for l in requests[r]["latency"]:
-            print(str(l) + " ", end="")
-        print("")
+        requests[r]["latency_avg"] = movingavg(requests[r]["latency"], window)
 
-        # get the moving average of those latencies
-        request_movingavg = movingavg(requests[r]["latency"], window)
-        print(requests[r]["op"] + " (mvavg): " + str(request_movingavg))
+# print out the requests in columns
+columns = {}
+print("# ", end="")
+for r in requests:
+    if len(requests[r]["latency"]) > 0:
+        print(requests[r]["op"] + " ", end="")
+print("")
+for i in range(
+for r in requests:
+    if len(requests[r]["latency"]) > 0:
+        print(str(requests[r]["latency_avg"][1]) + " ", end="")
+print("")
