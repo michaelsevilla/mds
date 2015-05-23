@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-source config.sh
+source config/config.sh
 WORKDIR=`pwd`
 ROOTDIR=`dirname $WORKDIR`
 SCRIPTS=`dirname $ROOTDIR`"/scripts"
@@ -15,7 +15,7 @@ nDumps=0
 for i in {0..5}; do
     echo ""
     echo "*** RUN $i ***"
-    #tar xzf run$i.tar.gz
+    tar xzf data/run$i.tar.gz
     
     cd run$i/perf
     rm -f replyl_issdm-$MDS replyt_issdm-$MDS reply_issdm-$MDS
@@ -95,5 +95,5 @@ for i in {0..5}; do
     rm -r $cols run$i
 done
 
-gnuplot gnuplot.sh
-rm -r data
+gnuplot config/gnuplot.sh
+#rm -r data/run*-thruput
