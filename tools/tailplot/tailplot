@@ -1,0 +1,3 @@
+#!/bin/bash
+
+java -ea -jar ~/mds/tools/tailplot/tailplot_v1.4.0.jar "$@"

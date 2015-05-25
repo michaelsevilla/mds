@@ -45,57 +45,54 @@ def movingavg(values, window):
     weights = numpy.repeat(1.0, window)/window
     return numpy.convolve(values, weights, 'valid')
 
-if len(sys.argv) < 2:
-    print("@input:  LTTng trace")
-    print("@output: request latencies")
-    print("Print out distribution of the request latencies")
-    print("USAGE:", sys.argv[0], "<file> [window]")
+# main
+if len(sys.argv) < 3:
+    print("\nPrint out distribution of the request latencies")
+    print("USAGE:", sys.argv[0], "<operation> <LTTng trace dir> [window]")
+    print("\nOperations: ", end=" ")
+    for r in requests:
+        print(requests[r]["op"], end=" ")
+    print("")
     sys.exit(0)
-trace = sys.argv[1]
+
+op = sys.argv[1]
+trace = sys.argv[2]
 try:
-    window = int(sys.argv[2])
+    window = int(sys.argv[3])
 except:
     window = 1
 
 # initialize some stuff
-for r in requests:
-    requests[r]["latency"] = []
 traces = TraceCollection()
 ret = traces.add_trace(trace, "ctf")
-
 servicers = {}
+latencies = []
+
+# get the latencies for the specified operation
 for event in traces.events:
-    time, addr, type = event.timestamp, event["addr"], event["type"]
-    pthread_id  = event["pthread_id"]
-    #print(requests[type]["op"] + " " + str(time))
-    
-    # get the thread servicing the client request
-    servicer = (pthread_id, addr)
-    if event.name == "mds:req_enter":
-        servicers[servicer] = time
-    elif event.name == "mds:req_exit":
-        try:
-            latency = time - servicers[servicer]
-            del servicers[servicer]
-            #print(requests[type]["op"] + "\t" + str(latency))
-            requests[type]["latency"].append(latency)
-        except KeyError:
-            continue
+    if requests[event["type"]]["op"] == op:
+        time, addr, pthread_id = event.timestamp, event["addr"], event["pthread_id"]
+
+        # get the thread servicing the client request
+        servicer = (pthread_id, addr)
+        if event.name == "mds:req_enter":
+            servicers[servicer] = time
+        elif event.name == "mds:req_exit":
+            try:
+                latencies.append(time - servicers[servicer])
+                del servicers[servicer]
+            except KeyError:
+                continue
 
 # get the moving averages
-for r in requests:
-    if len(requests[r]["latency"]) > 0:
-        requests[r]["latency_avg"] = movingavg(requests[r]["latency"], window)
-
-# print out the requests in columns
-columns = {}
-print("# ", end="")
-for r in requests:
-    if len(requests[r]["latency"]) > 0:
-        print(requests[r]["op"] + " ", end="")
-print("")
-for i in range(
-for r in requests:
-    if len(requests[r]["latency"]) > 0:
-        print(str(requests[r]["latency_avg"][1]) + " ", end="")
-print("")
+try:
+    avg = movingavg(latencies, window)
+except:
+    print("Not enough values for a moving average")
+    sys.exit(0)
+print("# latency average")
+for i in range(len(latencies)):
+    if i < window:
+        print(str(latencies[i]) + " 0")
+    else:
+        print(str(latencies[i]) + " " + str(avg[i-window]))

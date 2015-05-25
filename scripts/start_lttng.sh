@@ -1,4 +1,3 @@
-set -e
 lttng destroy
 lttng create
 lttng enable-event -u --tracepoint "mds:req*"
