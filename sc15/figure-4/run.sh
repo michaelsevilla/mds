@@ -1,98 +1,70 @@
 #!/bin/bash
 set -e
+source /user/msevilla/ceph-deploy/config.sh
 
-source config/config.sh
-WORKDIR=`pwd`
-ROOTDIR=`dirname $WORKDIR`
-SCRIPTS=`dirname $ROOTDIR`"/scripts"
-if [ ! -d "./data" ]; then
-    mkdir ./data
+if [ $# -lt 1 ]; then 
+    echo "USAGE: $0 <output dir>"
+    exit 1
+fi
+OUTPUTDIR=$1
+echo "spitting to $OUTPUTDIR"
+
+if [ ! -d $OUTPUTDIR ]; then
+    mkdir $OUTPUTDIR
 fi
 
-echo "=============================="
-echo "working directory: $WORKDIR"
-echo "root directory: $ROOTDIR"
-echo "scripts directory: $SCRIPTS"
-echo "=============================="
-
-nDumps=0
-for i in {0..5}; do
-    echo -e "\n*** RUN $i ***"
-    tar xzf data/run$i.tar.gz
-    cd run$i/perf
-    rm -f replyl_issdm-$MDS replyt_issdm-$MDS reply_issdm-$MDS
-
-    nMDS=0
-    for MDS in $MDSs; do
-        echo -e "\tMaking the reply file for MDS$MDS"
-        if [ $nMDS -eq 0 ]; then
-            for j in {0..1000}; do
-                if [ -a 15-$j ]; then
-                    nDumps=$j
-                fi
-            done
-            echo -e "\t... found $nDumps performance counter dumps"
-        fi
-
-        # get the instantaneous reply latency/throughput
-        for j in $(seq 0 $nDumps); do
-            parse_perf.py $MDS-$j mds reply_latency >> reply_issdm-$MDS
-        done
-        $SCRIPTS/parse_replyl.py reply_issdm-$MDS ops-per-second | sed 's/-[0-9][0-9]*/0/g' >> replyt_issdm-$MDS
-        $SCRIPTS/parse_replyl.py reply_issdm-$MDS latency >> replyl_issdm-$MDS
-
-        echo -e "\t... concatenating instaneous latencies/throughputs into one file"
-        cat reply_issdm-$MDS | awk '{print $1}' > col1
-        cat replyl_issdm-$MDS | awk '{print $2}' > col2
-        cat replyl_issdm-$MDS | awk '{print $3}' > col3
-        cat replyt_issdm-$MDS | awk '{print $3}' > col4
-
-        echo -e "\t... make sure the number of columns match for each MDS"
-        nLines=`wc -l col1 | awk '{print $1'}`
-        for j in {2..4}; do
-            nLines_j=`wc -l col2 | awk '{print $1'}`
-            if [ $nLines > $nLines_j ]; then
-                extra=$(($nLines - nLines_j))
-                for j in $(seq 0 $extra); do
-                    echo "0" >> col$j
-                done
-            fi
-        done
-        paste -d " " col1 col2 col3 col4 > replyc_issdm-$MDS
-        
-        rm replyl_issdm-$MDS replyt_issdm-$MDS reply_issdm-$MDS col1 col2 col3 col4
-        nMDS=$(($nMDS+1))
-    done
-   
-    echo -e "\tConcatenating all MDS throughputs into run$0-thruput"
-    cd $WORKDIR 
-    nMDS=0
-    cols="colDate colTime "
-    nLines=0
-    MDSs=`cat run$i/status/status-0 | grep mdsmap | awk '{print $5}' | tr ',' '\n'  | tr '=' ' ' | while read p; do echo $p | awk '{print $2}' | tr '-' ' ' | awk '{print $2}' | tr '\n' ' '; done` 
-    for MDS in $MDSs; do
-        if [ $nMDS -eq 0 ]; then
-            if grep -Fxq "NULLTIME" run$i/perf/replyc_issdm-$MDS; then
-                cat run$i/perf/replyc_issdm-$MDS | awk '{print $2}' > colTime
-            else
-                cat run$i/perf/mds-issdm-$MDS.timing | awk '{print $2}' > colTime
-            fi
-            cat run$i/perf/replyc_issdm-$MDS | awk '{print $1}' > colDate
-            nLines=`wc -l colTime | awk '{print $1}'`
-        fi
-        cat run$i/perf/replyc_issdm-$MDS | awk '{print $4}' > col$MDS
-        nLines_j=`wc -l col$MDS | awk '{print $1}'`
-        if [ $nLines -lt $nLines_j ]; then
-            extra=$(($nLines - nLines_j))
-            for j in $(seq 0 $extra); do
-                echo "0" >> col$MDS
-            done
-        fi
-        cols="$cols col$MDS"
-    done
-    paste -d " " $cols > data/run$i-thruput
-    rm -r $cols run$i
+for i in 0 1 2; do
+    echo "------ resetting cluster"
+    ./reset.sh
+    sleep 60
+    echo "------ ... done resetting cluster"
+    
+    echo "------ configuring MDSs"
+    ./cluster.sh MDSs "/user/msevilla/ceph-deploy/config_mds_none.sh"
+    #HEAD=`ceph -s | grep mds | awk '{print $5}' | awk -F"," '{print $1}' | awk -F"=" '{print $2}'`
+    #echo "------ configuring head: $HEAD"
+    #ssh $HEAD "/user/msevilla/ceph-deploy/config_mds1.sh"
+    echo "------ ... done configuring MDSs"
+    
+    echo "------ mount some clients"
+    ./cluster.sh CLIENTs "/user/msevilla/ceph-deploy/job-scripts/mount-client.sh"
+    echo "------ ... done mounting clients"
+    
+    echo "------ launching run"
+    ./run.sh > /dev/null 2>&1 &
+    sleep 30
+    echo "... zzz 30"
+    sleep 30
+    echo "... zzz 60"
+    sleep 30
+    echo "... zzz 1:30"
+    sleep 30
+    echo "... zzz 2:00"
+    sleep 30
+    echo "... zzz 2:30"
+    echo "------ ... done launching"
+    
+    #echo "------ lets prepare the job"
+    #job-scripts/prepare-job.sh 
+    echo "------ lets prepare the MDSs"
+    ./cluster.sh MDSs "/user/msevilla/ceph-deploy/config_mds.sh"
+    echo "------ lets start the job `date`"
+    job-scripts/start-job.sh
+    #echo "------ lets start the sepdir creates `date`"
+    #for i in $CLIENTs; do
+    #    ssh issdm-$i "/user/msevilla/programs/mdtest/mdtest -F -C -n 100000 -d /mnt/cephfs/dir-$i >/mnt/vol2/msevilla/ceph-logs/client/client-$i.log 2>&1" &
+    #done
+    echo "------ .... done - going to sleep now"
+    #wait
+    
+    sleep 60
+    #sleep 600
+    #echo "------ lets run some lss"
+    #job-scripts/finish-job.sh
+    
+    echo "------ writing results"
+    sudo pkill run.sh
+    ./stop.sh $OUTPUTDIR/run$i
+    echo "------ ... done writing"
 done
-
-gnuplot config/gnuplot.sh
-rm -r data/run*-thruput
+#ssh issdm-0 "mpirun --host issdm-0,issdm-7,issdm-11,issdm-21 /user/msevilla/programs/mdtest/mdtest -n 100000 -F -C -d /mnt/cephfs/shared > /mnt/vol2/msevilla/ceph-logs/client/clients.log 2>&1"

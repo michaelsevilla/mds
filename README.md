@@ -10,9 +10,13 @@ Scripts for deploying and measuring CephFS with multiple MDSs. These scripts you
 
 Going into each directory and running:
 
-`./run.sh`
+`./plot.sh`
 
-will produce the corresponding figure.
+will produce the corresponding figure. Running:
+
+`./cluster-setup.sh; ./run.sh`
+
+will deploy the cluster and run the experiment.
 
 Contents
 - balancers:    custom metadata balancers and the environment constructors for Mantle
