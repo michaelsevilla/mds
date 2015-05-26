@@ -1,19 +1,12 @@
 #!/bin/bash
 # Start the cluster
-source config.sh
+source config/cluster.sh
 set -e
 
-if [ $INSTALL -eq 1 ]; then 
-    for i in $ALL; do
-        ssh issdm-$i "  sudo dpkg -i $DEB"
-    done
-fi
-
-#ceph-deploy install issdm-{0,3,5,10,13,14,15,16,17,34};
 echo "Starting MONs on $MONs"
 ceph-deploy new issdm-$MONs;
-ssh issdm-$MONs "   sudo mkdir -p /mnt/vol2/msevilla/ceph-logs/mon /var/log/ceph /mnt/vol2/msevilla/ceph-logs/client /etc/ceph; "
-cat ./ceph.template >> ceph.conf;
+ssh issdm-$MONs "   sudo mkdir -p /mnt/vol2/msevilla/ceph-logs/mon /var/log/ceph /mnt/vol2/msevilla/ceph-logs/client /etc/ceph;"
+cat ./config/default.sh >> ceph.conf;
 ceph-deploy mon create-initial;
 echo
 
@@ -29,19 +22,13 @@ for i in $ALL; do
    ceph-deploy admin issdm-$i
 done
 echo
+
 echo "Starting OSDs on $OSDs"
 for i in $OSDs; do
     ssh issdm-$i "  sudo mkdir -p /var/lib/ceph/osd/ /var/lib/ceph/tmp/ /var/lib/ceph/bootstrap-osd; \
                     sudo chown -R msevilla:msevilla /var/lib/ceph/; \
                     sudo mkdir -p /mnt/ssd1/msevilla/ceph-data /mnt/ssd2/msevilla/ceph-data /mnt/ssd3/msevilla/ceph-data; \
                     sudo chown -R msevilla:msevilla /mnt/ssd1/msevilla /mnt/ssd2/msevilla /mnt/ssd3/msevilla;"
-                    #sudo opcontrol --deinit > /dev/null 2>&1; \
-                    #sudo opcontrol --init; \
-                    #sudo opcontrol --setup --vmlinux=/users/msevilla/vmlinux --separate=library; \
-                    #sudo opcontrol --event=default; \
-                    #sudo opcontrol --start;"
-    #ceph-deploy osd prepare issdm-$i:/mnt/vol1/msevilla/ceph-data:/mnt/vol3/msevilla/ceph-data/journal;
-    #ceph-deploy osd activate issdm-$i:/mnt/vol1/msevilla/ceph-data:/mnt/vol3/msevilla/ceph-data/journal;
     ceph-deploy osd prepare issdm-$i:/mnt/vol1/msevilla/ceph-data:/mnt/ssd1/msevilla/ceph-data/journal;
     ceph-deploy osd prepare issdm-$i:/mnt/vol2/msevilla/ceph-data:/mnt/ssd2/msevilla/ceph-data/journal;
     ceph-deploy osd prepare issdm-$i:/mnt/vol3/msevilla/ceph-data:/mnt/ssd3/msevilla/ceph-data/journal;
@@ -50,7 +37,6 @@ for i in $OSDs; do
     ceph-deploy osd activate issdm-$i:/mnt/vol3/msevilla/ceph-data:/mnt/ssd3/msevilla/ceph-data/journal;
 done
 echo
-
 
 echo "Starting MDSs on $MDSs"
 ceph osd pool create cephfs_data $PGs
@@ -61,11 +47,6 @@ ceph fs new sevilla_fs cephfs_metadata cephfs_data
 
 for i in $MDSs; do
     ssh issdm-$i "  sudo mkdir -p /var/lib/ceph/bootstrap-mds /var/lib/ceph/mds $OUT/mds;"
-                    #sudo opcontrol --deinit; \
-                    #sudo opcontrol --init; \
-                    #sudo opcontrol --setup --vmlinux=/users/msevilla/vmlinux --separate=library; \
-                    #sudo opcontrol --event=default; \
-                    #sudo opcontrol --start;"
     ceph-deploy mds create issdm-$i
     sleep 1
 done
@@ -81,12 +62,12 @@ if [ $UNSTABLE -eq 1 ]; then
     echo
 fi
 
-
 echo "Going to sleep while the cluster initializes..."
 sleep 60
 echo "Checking status..."
 sudo ceph -s
 
+echo "Setting up clients on $CLIENTs"
 sudo chown msevilla:msevilla -R /mnt/vol2/msevilla
 rm -r $OUT/
 mkdir -p $OUT/status

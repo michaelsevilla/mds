@@ -1,6 +1,6 @@
 #!/bin/bash
 # Logs into each MDS and dumps the counters
-source config.sh
+source config/cluster.sh
 #set -e
 
 # Create log directories

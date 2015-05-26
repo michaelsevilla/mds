@@ -1,6 +1,6 @@
 #!/bin/bash
 # Kill collect.sh processes
-source config.sh
+source config/cluster.sh
 
 if [ $# -lt 1 ]; then
     echo -e "**********\nYou didn't give me a directory to spit to\n***********\n"

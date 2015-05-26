@@ -38,3 +38,5 @@ sudo apt-get install liblttng-ust-dev -y
 sudo apt-get install build-essential libsqlite3-dev sqlite3 bzip2 libbz2-dev -y
 # For babeltrace
 sudo apt-get install bison flex swig -y
+sudo apt-get install liblttng-ctl0 liblttng-ust0 -y
+isudo apt-get install libleveldb1 -y

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tear down old cluster
-source config.sh
+source config/cluster.sh
 
 echo -n "I'm about to tear down the Ceph cluster, are you sure [y/n]? "
 read ans

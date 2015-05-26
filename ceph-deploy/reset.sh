@@ -1,6 +1,6 @@
 #!/bin/bash
 # Reset the same cluster
-source config.sh
+source config/cluster.sh
 
 echo "PGs=$PGs"
 ./stop.sh; 

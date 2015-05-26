@@ -1,6 +1,6 @@
 #!/bin/bash
 # Start the cluster
-source config.sh
+source config/cluster.sh
 
 if [ "$#" -lt 2 ]; then
     echo "Usage: <who> (<command>|mount|cleanup-client)"
