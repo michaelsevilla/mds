@@ -72,6 +72,8 @@ latencies = {}
 
 # get the latencies for the specified operation
 count = 1
+start = -1
+finish = -1
 for event in traces.events:
     if requests[event["type"]]["op"] == op:
         ts, addr, pthread_id = event.timestamp, event["addr"], event["pthread_id"]
@@ -82,6 +84,10 @@ for event in traces.events:
             servicers[servicer] = ts
         elif event.name == "mds:req_exit":
             try:
+                if ts < start or start == -1:
+                    start = ts
+                if ts > finish or finish == -1:
+                    finish = ts
                 t = time.strftime('%H:%M:%S',  time.localtime(ts/1e9))
                 if t not in latencies:
                     latencies[t] = []
@@ -91,6 +97,7 @@ for event in traces.events:
                 continue
         count += 1
 
+# get the average for second
 avgLatencies = []
 times = []
 for k,v in sorted(latencies.items()):
@@ -99,14 +106,24 @@ for k,v in sorted(latencies.items()):
         avgLatencies.append(numpy.mean(v))
 
 # get the moving averages
-try:
-    mvAvg = movingavg(avgLatencies, window)
-except:
-    print("Not enough values for a moving average")
-    sys.exit(0)
-print("# latency average")
-for i in range(len(avgLatencies)):
-    if i < window:
-        print(str(times[i]) + " " + str(avgLatencies[i]/1e6) + " 0")
-    else:
-        print(str(times[i]) + " " + str(avgLatencies[i]/1e6) + " " + str(mvAvg[i-window]/1e6))
+#try:
+#    mvAvg = movingavg(avgLatencies, window)
+#except:
+#    print("Not enough values for a moving average")
+#    sys.exit(0)
+#print("# time latency average")
+#for i in range(len(avgLatencies)):
+#    if i < window:
+#        print(str(times[i]) + " " + str(avgLatencies[i]/1e6) + " 0")
+#    else:
+#        print(str(times[i]) + " " + str(avgLatencies[i]/1e6) + " " + str(mvAvg[i-window]/1e6))
+
+# get the number of requests in that second
+print("# time nrequests, start=" + time.strftime('%H:%M:%S',  time.localtime(start/1e9)) + " finish=" + time.strftime('%H:%M:%S',  time.localtime(finish/1e9)))
+for ts in range(math.floor(start/1e9), math.floor(finish/1e9)):
+    t = time.strftime('%H:%M:%S',  time.localtime(ts))
+    try:
+        print(str(t) + " " +  str(len(latencies[t])))
+    except KeyError:
+        print(str(t) + " 0")
+
