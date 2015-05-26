@@ -3,6 +3,8 @@
 import sys
 import numpy
 from babeltrace import *
+import time
+import math
 
 # This is for ceph version 9.0.0-928-g98d1c10 (98d1c1022c098b98bdf7d30349214c00b15cffec)
 requests = {
@@ -66,33 +68,45 @@ except:
 traces = TraceCollection()
 ret = traces.add_trace(trace, "ctf")
 servicers = {}
-latencies = []
+latencies = {}
 
 # get the latencies for the specified operation
+count = 1
 for event in traces.events:
     if requests[event["type"]]["op"] == op:
-        time, addr, pthread_id = event.timestamp, event["addr"], event["pthread_id"]
+        ts, addr, pthread_id = event.timestamp, event["addr"], event["pthread_id"]
 
         # get the thread servicing the client request
         servicer = (pthread_id, addr)
         if event.name == "mds:req_enter":
-            servicers[servicer] = time
+            servicers[servicer] = ts
         elif event.name == "mds:req_exit":
             try:
-                latencies.append(time - servicers[servicer])
+                t = time.strftime('%H:%M:%S',  time.localtime(ts/1e9))
+                if t not in latencies:
+                    latencies[t] = []
+                latencies[t].append(ts - servicers[servicer])
                 del servicers[servicer]
             except KeyError:
                 continue
+        count += 1
+
+avgLatencies = []
+times = []
+for k,v in sorted(latencies.items()):
+    if v:
+        times.append(k)
+        avgLatencies.append(numpy.mean(v))
 
 # get the moving averages
 try:
-    avg = movingavg(latencies, window)
+    mvAvg = movingavg(avgLatencies, window)
 except:
     print("Not enough values for a moving average")
     sys.exit(0)
 print("# latency average")
-for i in range(len(latencies)):
+for i in range(len(avgLatencies)):
     if i < window:
-        print(str(latencies[i]) + " 0")
+        print(str(times[i]) + " " + str(avgLatencies[i]/1e6) + " 0")
     else:
-        print(str(latencies[i]) + " " + str(avg[i-window]))
+        print(str(times[i]) + " " + str(avgLatencies[i]/1e6) + " " + str(mvAvg[i-window]/1e6))
