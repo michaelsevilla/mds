@@ -57,10 +57,11 @@ def main(argv):
         opts, args = getopt.getopt(argv, "ht:w:o:d:", ["type=", "window=", "output=", "dir="])
     except getopt.GetoptError:
         print(sys.argv[0] + " -t <operation> -w <window> -o <outputfile> -d <LTTng trace dir>", file=sys.stderr)
+        sys.exit(0)
     for opt, arg in opts:
         if opt == '-h':
             print("\nPrint out distribution of the request latencies", file=sys.stderr)
-            print(sys.argv[0] + " -t <operation> -w <window> -o <outputfile> -d <LTTng trace dir>", file=sys.stderr)
+            print("\n\tusage: " + sys.argv[0] + " -t <operation> -w <window> -o <outputfile> -d <LTTng trace dir>", file=sys.stderr)
             print("\n\nOperations: ", end=" ", file=sys.stderr)
             for r in requests:
                 print(requests[r]["op"], end=" ", file=sys.stderr)
@@ -110,7 +111,7 @@ def main(argv):
         if count % 10000 == 0: 
             print("... done with " + str(int(count/1000)) + "k events")
 
-    # get the average latency for each second time step
+    print("... get the average latency for each second time step\n")
     # - there's a lot of copying going on here... but the runs usually take about 10 minutes,
     #   which is only about 600 samples... if we need to do like 6 hours, then this might take
     #   a while
@@ -119,33 +120,44 @@ def main(argv):
     for k,v in sorted(latencies.items()):
         if v and v["all"]:
             times.append(k)
-            mean = numpy.mean(v["all"])
-            avgLatencies.append(mean)
-            v["mean"] = mean
+            avgLatencies.append(numpy.mean(v["all"]))
     
-    # get the moving averages
+    print("... get the moving averages\n")
     try:
         mvAvg = movingavg(avgLatencies, window)
     except:
         print("Not enough values for a moving average", file=sys.stderr)
         sys.exit(0)
 
-    ## put the moving average value back into the latencies dictionary
-    #for i in range(len(avgLatencies)):
-    #    if i < window:
-    #        print(str(times[i]) + " " + str(avgLatencies[i]/1e6) + " 0")
-    #    else:
-    #        print(str(times[i]) + " " + str(avgLatencies[i]/1e6) + " " + str(mvAvg[i-window]/1e6))
-    #
-    ## get the number of requests in that second
-    #print("# time latency average")
-    #print("# time nrequests, start=" + time.strftime('%H:%M:%S',  time.localtime(start/1e9)) + " finish=" + time.strftime('%H:%M:%S',  time.localtime(finish/1e9)))
-    #for ts in range(math.floor(start/1e9), math.floor(finish/1e9)):
-    #    t = time.strftime('%H:%M:%S',  time.localtime(ts))
-    #    try:
-    #        print(str(t) + " " +  str(len(latencies[t])))
-    #    except KeyError:
-    #        print(str(t) + " 0")
+    print("... put the moving average value back into the latencies dictionary\n")
+    for i in range(len(times)):
+        latencies[times[i]]["mean"] = avgLatencies[i]
+        if i < window:
+            latencies[times[i]]["mvavg"] = 0
+        else:
+            latencies[times[i]]["mvavg"] = mvAvg[i - window]
+    
+    # get the number of requests in that second
+    f = open(output, 'w')
+    f.write("# time nrequests latency average\n")
+    print(  "# time nrequests," +
+            " start=" + time.strftime('%H:%M:%S',  time.localtime(start/1e9)) + 
+            " finish=" + time.strftime('%H:%M:%S',  time.localtime(finish/1e9)) + "\n")
+    prevLat = 0; prevMvAvg = 0
+    for ts in range(math.floor(start/1e9) - 1, math.floor(finish/1e9)):
+        t = time.strftime('%H:%M:%S',  time.localtime(ts))
+        try:
+            f.write(str(t) + 
+                    " " + str(len(latencies[t]["all"])) + 
+                    " " + str(latencies[t]["mean"]/1e6) + 
+                    " " + str(latencies[t]["mvavg"]/1e6) + "\n")
+            prevLat = latencies[t]["mean"]
+            prevMvAvg = latencies[t]["mvavg"]
+        except KeyError:
+            f.write(str(t) + " 0 " + 
+                    " " + str(prevLat/1e6) +
+                    " " + str(prevMvAvg/1e6) + "\n")
+    f.close()
 
 if __name__ == "__main__":
     main(sys.argv[1:])
