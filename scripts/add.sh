@@ -1,3 +1,5 @@
+echo deb http://ceph.com/packages/ceph-extras/debian $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/ceph-extras.list
+
 sudo apt-get install openmpi-bin libleveldb libpopt-dev binutils-dev -y
 
 #packages from 'build ceph'
@@ -39,4 +41,4 @@ sudo apt-get install build-essential libsqlite3-dev sqlite3 bzip2 libbz2-dev -y
 # For babeltrace
 sudo apt-get install bison flex swig -y
 sudo apt-get install liblttng-ctl0 liblttng-ust0 -y
-isudo apt-get install libleveldb1 -y
+sudo apt-get install libleveldb1 -y
