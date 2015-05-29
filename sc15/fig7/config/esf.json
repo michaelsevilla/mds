@@ -1,0 +1,175 @@
+{
+  "goal_location": { "sec": "5.1.1", "par": 3 },
+  "goal_text": "using only a subset of the MDS nodes and spilling load unevenly has the highest throughput",
+  "goal_category": ["proof_of_concept"],
+  "experiments": [{
+    "reference": "figure-7",
+    "name": "balancer experiment",
+    "tags" : ["per-MDS throughput"],
+    "hardware_dependencies": [{
+      "type": "network",
+      "bw": "1GbE"
+    },{
+      "type:" "memory",
+      "size": "8GB"
+    }],
+    "software_dependencies": [{
+      "type": "os",
+      "kernel": "linux 3.4.0",
+      "distro": "Ubuntu 12.0.4"
+    },{
+      "type": "storage",
+      "name": "ceph",
+      "version": "0.91-365-g2da2311",
+    }],
+    "workload": {
+      "type": "mdtest",
+      "configuration": [
+        "number of files": "100000",
+        "number of directories": "1",
+        "mode": "create"
+    ]},
+    "independent_variables": [{
+      "type": "mds",
+      "alias": ["num_of_mds", "mdss", "servers"],
+      "values": ["1", "2", "3", "4", "5"],
+    },{
+      "type": "method",
+      "alias": ["balancer", "technique"], 
+      "values": ["greedy_spill", "greedy_spill_even", "fill_spill"]
+    }],
+    "dependent_variable": {
+      "type": "speedup",
+      "scale": "1mds_requests/s"
+    },
+    "validations": [{
+      "for    balancer=greedy_spill
+       expect MDS0 >= 1.9 * MDS1
+       expect MDS1 >= 1.9 * MDS2
+       expect (MDS3 * 1.1) >= MDS2 >= (MDS3 * 0.9)
+       total = MDS0 + MDS1 + MDS2 + MDS3"
+    },{
+      "for    balancer=greedy_spill_even
+       expect MDS0 == MDS1 == MDS2 == MDS3
+       total = MDS0 + MDS1 + MDS2 + MDS3"
+    },{
+      "for    balancer=fill_&_spill
+       expect MDS0 >= 3.9 * MDS1
+       total = MDS0 + MDS1"
+    }]
+  },{
+
+    "reference": "figure-8",
+    "name": "create speedup experiment",
+    "tags" : ["per-client speedup"],
+    <======= I dont repeat all the params from the previous experiment that havent changed
+    "workload": {
+      "type": "mdtest",
+      "configuration": [
+        "number of files": "100000",
+        "number of directories": "100000",
+        "mode": "create"
+    ]},
+    "independent_variables": [{
+      "type": "method",
+      "values": ["runtime speedup over 1MDS"],
+      "desc": "runtime measured from the client divided by runtime for a client using 1MDS"
+    },{
+      "type": "balancer",
+      "values": ["greedy_spill", "greedy_spill_even", "fill_&_spill_20%", "fill_&_spill_10%"]
+    },{
+      "type": "MDSs",
+      "values": ["2-4", 1]
+    }],
+    "dependent_variable": {
+      "type": "speedup",
+      "scale": "runtime MDSs/runtime 1MDS"
+    }
+    "statistical_functions": {
+      "functions": ["avg", "stddev"],
+      "repetitions": 3
+    }
+    "validations": [{
+      <======= This is getting hairy, but it actually gives you the real numbers 
+      "for     balancer=greedy_spill, MDSs=2
+       expect  8% + 3.9% > speedup > 8% - 3.9%"
+    },{
+      "for     balancer=greedy_spill, MDSs=3
+       expect  -5% + 10% > speedup > -5% - 10%"
+    },{
+      "for     balancer=greedy_spill, MDSs=4
+       expect  -20% + 6.3% > speedup > -20% - 6.3%%"
+    },{
+      "for     balancer=greedy_spill_even, MDSs=4
+       expect  -40% + 2.5% > speedup > -40% - 2.5%"
+    },{
+      "for     balancer=fill_&_spill_20%, MDSs=4
+       expect  6% + 0.8% > speedup > 6% - 0.8%"
+    },{
+      "for     balancer=fill_&_spill_10%, MDSs=4
+       expect  1% + 5% > speedup > 1% - 5%"
+    }]
+  },{
+
+    "reference": "figure-9",
+    "name": "compile speedup experiment",
+    "tags" : ["per-client speedup"],
+    "software_dependencies": [
+      "mds_cache_size": "100000",
+      "client_cache_size": "16384",
+    ]
+    "workload": {
+      "type": "make",
+      "configuration": [
+        "src": "linux-3.18.5.tar.xz",
+        "config": "make allnoconfig"
+    ]},
+    "independent_variables": [{
+      "type": "method",
+      "values": ["runtime speedup over 1MDS"],
+      "desc": "runtime measured from the client divided by runtime for a client using 1MDS"
+    },{
+      "type": "clients",
+      "values": ["3", "5"]
+    },{
+      "type": "MDSs",
+      "values": ["2-5", 1]
+    },{
+      "type": "balancer",
+      "values": ["self-heal", "conservative", "very-aggressive"]  
+    }]
+    "dependent_variable": {
+      "type": "speedup",
+      "scale": "runtime MDSs/runtime 1MDS"
+    }
+    "statistical_functions": {
+      "functions": ["avg", "stddev"],
+      "repetitions": 3
+    }
+    "validations": [{
+      "for     clients=3, balancer=self-heal, MDSs=2
+       expect  0.7% + 2% > speedup > 0.7% - 2%"
+    },{
+      "for     clients=3, balancer=self-heal, MDSs=3
+       expect  5% + 1.7% > speedup > 5% - 1.7%"
+    },{
+      "for     clients=5, balancer=self-heal, MDSs=2
+       expect  2.4% + 1.6% > speedup > 2.4% - 1.6%"
+    },{
+      "for     clients=5, balancer=self-heal, MDSs=3
+       expect 7.8% + 1% > speedup > 7.8% - 1%"
+    },{
+      "for     clients=5, balancer=self-heal, MDSs=4
+       expect 7.5% + 0.7% > speedup > 7.5% - 0.7%"
+    },{
+      "for     clients=5, balancer=self-heal, MDSs=5
+       expect 9% + 0.5% > speedup > 9% - 0.5%"
+    },{
+      "for     clients=5, balancer=conservative, MDSs=5
+       expect 8% + 0.9% > speedup > 8% - 0.9%"
+    },{ 
+      "for     clients=5, balancer=very-aggressive, MDSs=5
+       expect 5% + 2.5% > speedup > 8% - 2.5%"
+    }]
+}
+
