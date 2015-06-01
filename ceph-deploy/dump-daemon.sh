@@ -9,13 +9,15 @@ fi
 DAEMON=$1
 CONFIG=$2
 CONFDIR=`dirname $CONFIG`
+SCRIPTSDIR=`dirname $CONFDIR`
+ROOTDIR=`dirname $SCRIPTSDIR`
 HOST=`hostname`
 
 source $CONFIG
-LOG="$OUT/dump-daemons/dump-daemon-$DAEMON.log" >> $LOG 2>&1
+LOG="$OUT/dump-daemons/dump-daemon-$DAEMON.log"
 
-sudo chown -R msevilla:msevilla /mnt/vol2/msevilla/ceph-logs/* >> $LOG 2>&1
-mkdir -p $OUT/dump-daemons $OUT/osd/perf $OUT/osd/cpu $OUT/mds/perf $OUT/mds/cpu $OUT/mon $OUT/config $OUT/client >> $LOG 2>&1
+sudo chown -R msevilla:msevilla /mnt/vol2/msevilla/ceph-logs 
+mkdir -p $OUT/dump-daemons $OUT/osd/perf $OUT/osd/cpu $OUT/mds/perf $OUT/mds/cpu $OUT/mon $OUT/config $OUT/client 
 echo "$DAEMON daemon started at `date`" > $LOG
 echo "config: $CONFIG" >> $LOG
 echo "out: $OUT" >> $LOG 
@@ -30,6 +32,7 @@ sudo pkill collectl >> $LOG 2>&1
 if [ "$DAEMON" == "mon" ]; then
     echo "--- SETTING UP MON $HOST" >> $LOG
     cp $CONFDIR/* $OUT/config/ >> $LOG 2>&1
+    cp $ROOTDIR/run.sh $OUT/run.sh >> $LOG 2>&1
 elif [ "$DAEMON" == "mds" ]; then
     echo "--- SETTING UP MDS $HOST" >> $LOG
     echo "...  dumping MDS config" >> $LOG

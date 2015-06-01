@@ -20,7 +20,7 @@ echo "Working directory: $WORKINGDIR"
 SCRIPTS="`dirname $WORKINGDIR`/scripts"
 echo "Scripts directory: $SCRIPTS"
 
-mkdir $NFSOUT > /dev/null 2>&1
+mkdir -p $NFSOUT/dump-daemons $NFSOUT/osd/perf $NFSOUT/osd/cpu $NFSOUT/mds/perf $NFSOUT/mds/cpu $NFSOUT/mon $NFSOUT/config $NFSOUT/client $NFSOUT/ceph-deploy > /dev/null 2>&1
 
 if [ "$cmd" == teardown ]; then
     echo -n "I'm about to tear down the Ceph cluster, are you sure [y/n]? "
@@ -44,8 +44,7 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
         echo "issdm-$i (MON)"
         ssh issdm-$i "  cp -r $OUT/* $NFSOUT/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/; \
-                        sudo cp -r $WORKINGDIR/job-scripts/ $NFSOUT/job-scripts; \
-                        sudo cp -r $WORKINGDIR/config* $NFSOUT/status/" >> /dev/null 2>&1
+                        sudo cp /etc/ceph/ceph.conf $NFSOUT/config/ceph.conf; " >> /dev/null 2>&1
     done
     for i in $MDSs; do
         echo "issdm-$i (MDS)" 
@@ -54,29 +53,25 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
     done
     for i in $OSDs; do
         echo "issdm-$i (OSD)"
-        ssh issdm-$i "  cp -r $OUT/osd/* $NFSOUT/osd/; \
+        ssh issdm-$i "  cp -r $OUT/* $NFSOUT/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
     done
     mkdir $NFSOUT/client $NFSOUT/cpu
     for i in $CLIENTs; do
         echo "issdm-$i" 
-        ssh issdm-$i "  cp -r $OUT/* $NFSOUT/client/; \
-                        cp -r $OUT/* $NFSOUT/cpu/; \
-                        sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/; \
-                        sudo rm -r /mnt/vol2/msevilla/ceph-logs/client/*" >> /dev/null 2>&1
+        ssh issdm-$i "  cp -r $OUT/* $NFSOUT/; \
+                        sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
     done
     
     # copy some last things over
-    cp -r $OUT/* $NFSOUT/
-    tar czvf $NFSOUT.tar.gz $NFSOUT
-    sudo chown -R msevilla:msevilla $OUT/*
+    tar czvf $NFSOUT.tar.gz $NFSOUT >> /dev/null 2>&1
     
     echo "killing collectl, deleting logs..."
     for i in $ALL; do
         echo -e "\t issdm-$i"
         ssh issdm-$i " sudo pkill collectl; \
                        ps ax | grep dump | grep -v greph | awk '{print \$1}' | while read p; do sudo kill -9 \$p; done; \
-                       rm -r $OUT/perf $OUT/cpu $OUT/status $OUT/client > /dev/null 2>&1; \
+                       rm -r $OUT/* > /dev/null 2>&1; \
                        ls $OUT;" >> /dev/null 2>&1
     done
     
@@ -122,7 +117,7 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
         echo
         
         echo "Checking for straggler processes..."
-        for i in $ALL; do
+        for i in $ALLz; do
             echo -e "\tissdm-$i"
             ssh issdm-$i "  sudo stop ceph-all; \
                             sudo rm -r --one-file-system /var/lib/ceph/* /var/log/ceph/* /etc/ceph/*; \
