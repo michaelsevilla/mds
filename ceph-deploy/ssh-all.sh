@@ -1,6 +1,8 @@
 #!/bin/bash
 # Start the cluster
-source config/cluster.sh
+WORKINGDIR=`pwd`
+source $WORKINGDIR/config/cluster.sh
+
 
 if [ "$#" -lt 2 ]; then
     echo "Usage: <who> (<command>|mount|cleanup-client)"

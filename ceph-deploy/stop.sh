@@ -36,7 +36,7 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
         echo -e "\t issdm-$CLIENT"
         ssh issdm-$CLIENT " sudo umount /mnt/cephfs > /dev/null 2>&1; \
                             sudo pkill ceph-fuse; \
-                            $WORKINGDIR/cleanup.sh client" >> /dev/null
+                            $WORKINGDIR/cleanup.sh client" >> /dev/null 2>&1
     done
     
     echo "copying logs..."
@@ -45,29 +45,29 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
         ssh issdm-$i "  cp -r $OUT/* $NFSOUT/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/; \
                         sudo cp -r $WORKINGDIR/job-scripts/ $NFSOUT/job-scripts; \
-                        sudo cp -r $WORKINGDIR/config* $NFSOUT/status/" >> /dev/null
+                        sudo cp -r $WORKINGDIR/config* $NFSOUT/status/" >> /dev/null 2>&1
     done
     for i in $MDSs; do
         echo "issdm-$i (MDS)" 
         ssh issdm-$i "  cp -r $OUT/* $NFSOUT/; \
-                        sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null
+                        sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
     done
     for i in $OSDs; do
         echo "issdm-$i (OSD)"
         ssh issdm-$i "  cp -r $OUT/osd/* $NFSOUT/osd/; \
-                        sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null
+                        sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
     done
     mkdir $NFSOUT/client $NFSOUT/cpu
     for i in $CLIENTs; do
         echo "issdm-$i" 
-        ssh issdm-$i "  cp -r $OUT/client/* $NFSOUT/client/; \
-                        cp -r $OUT/cpu/* $NFSOUT/cpu/; \
+        ssh issdm-$i "  cp -r $OUT/* $NFSOUT/client/; \
+                        cp -r $OUT/* $NFSOUT/cpu/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/; \
-                        sudo rm -r /mnt/vol2/msevilla/ceph-logs/client/*" >> /dev/null
+                        sudo rm -r /mnt/vol2/msevilla/ceph-logs/client/*" >> /dev/null 2>&1
     done
     
     # copy some last things over
-    cp -r $OUT/mon/* $NFSOUT/mon/
+    cp -r $OUT/* $NFSOUT/
     tar czvf $NFSOUT.tar.gz $NFSOUT
     sudo chown -R msevilla:msevilla $OUT/*
     
@@ -75,8 +75,9 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
     for i in $ALL; do
         echo -e "\t issdm-$i"
         ssh issdm-$i " sudo pkill collectl; \
+                       ps ax | grep dump | grep -v greph | awk '{print \$1}' | while read p; do sudo kill -9 \$p; done; \
                        rm -r $OUT/perf $OUT/cpu $OUT/status $OUT/client > /dev/null 2>&1; \
-                       ls $OUT;" >> /dev/null
+                       ls $OUT;" >> /dev/null 2>&1
     done
     
     if [ "$CMD" == "teardown" ]; then
