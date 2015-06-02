@@ -7,10 +7,12 @@ SCRIPTS="$ROOTDIR/scripts"
 source $CONFIG
 
 echo "--- START MONITORING THE CLUSTER using CONFIG=$CONFIG"
+$SCRIPTS/ssh-all.sh MONs "$SCRIPTS/dump-daemon.sh mon $CONFIG" $CONFIG
+exit
 for MON in $MONs; do
     CMD="$SCRIPTS/dump-daemon.sh mon $CONFIG"
     echo "... issdm-$MON: $CMD"
-    #ssh -f issdm-$MON "$CMD"
+    ssh -f issdm-$MON "$CMD"
 done
 for MDS in $MDSs; do
     CMD="$SCRIPTS/dump-daemon.sh mds $CONFIG"
@@ -32,7 +34,12 @@ done
 
 echo "--- START CLIENT"
 for CLIENT in $CLIENTs; do
-    CMD="$
+    CMD="(sudo ceph-fuse /mnt/cephfs -d) > /mnt/vol2/msevilla/ceph-logs/client/client$CLIENT 2>&1"
+    echo "... issdm-$CLIENT: $CMD"
+    ssh -f issdm-$CLIENT "$CMD"
+    CMD="sudo chown -R msevilla:msevilla /mnt/cephfs"
+    echo "... issdm-$CLIENT: $CMD"
+    ssh -f issdm-$CLIENT "$CMD"
 done
 
 echo "--- DESTROYING LTTNG"

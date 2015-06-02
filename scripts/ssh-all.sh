@@ -2,20 +2,19 @@
 
 
 if [ "$#" -lt 3 ]; then
-    echo "Usage: <who> (<command>|mount|cleanup-client) <config file>"
+    echo "Usage: $0 <who> (<command>|mount|cleanup-client) <config file>"
     exit
 fi
+echo "config=$3"
 source $3
 
 who="$1" 
 what="$2"
-append=1
-if [ -z $3 ]; then
-    append=0
-fi
 
 if [ "$who" == "MDSs" ]; then
     d=$MDSs
+elif [ "$who" == "MONs" ]; then
+    d=$MONs
 elif [ "$who" == "ALL" ]; then
     d=$ALL
 elif [ "$who" == "OSDs" ]; then
@@ -29,24 +28,9 @@ fi
 
 echo "sending command to $d"
 echo "command: $what"
-if [ $append -eq 1 ]; then
-    echo "appending iteration number"
-fi
-
-if [ "$what" == "mount" ]; then
-    what="ceph-deploy/job-scripts/mount-client.sh"
-    append=1
-elif [ "$what" == "cleanup-client" ]; then
-    what="ceph-deploy/job-scripts/cleanup-client.sh"
-    append=1
-fi
 
 for i in $d; do
     echo
     echo "----- issdm-$i -----"
-    if [ $append -eq 1 ]; then
-        ssh issdm-$i "$what $i"
-    else
-        ssh issdm-$i $what
-    fi
+    ssh -f issdm-$i $what
 done

@@ -36,7 +36,7 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
         echo -e "\t issdm-$CLIENT"
         ssh issdm-$CLIENT " sudo umount /mnt/cephfs > /dev/null 2>&1; \
                             sudo pkill ceph-fuse; \
-                            $WORKINGDIR/cleanup.sh client" >> /dev/null 2>&1
+                            $SCRIPTS/cleanup.sh client" >> /dev/null 2>&1
     done
     
     echo "copying logs..."
@@ -96,7 +96,7 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
         echo "Stopping OSDs..."
         for i in $OSDs; do
             echo -e "\tissdm-$i"
-            ssh issdm-$i "  /user/msevilla/ceph-deploy/job-scripts/cleanup-osd.sh;"
+            ssh issdm-$i "  $SCRIPTS/cleanup-osd.sh osd"
         done
         echo
         
