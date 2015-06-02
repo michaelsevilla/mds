@@ -1,13 +1,11 @@
 #!/bin/bash
-# Start the cluster
-WORKINGDIR=`pwd`
-source $WORKINGDIR/config/cluster.sh
 
 
-if [ "$#" -lt 2 ]; then
-    echo "Usage: <who> (<command>|mount|cleanup-client)"
+if [ "$#" -lt 3 ]; then
+    echo "Usage: <who> (<command>|mount|cleanup-client) <config file>"
     exit
 fi
+source $3
 
 who="$1" 
 what="$2"
