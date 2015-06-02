@@ -20,7 +20,7 @@ echo "Working directory: $WORKINGDIR"
 SCRIPTS="`dirname $WORKINGDIR`/scripts"
 echo "Scripts directory: $SCRIPTS"
 
-mkdir -p $NFSOUT/dump-daemons $NFSOUT/osd/perf $NFSOUT/osd/cpu $NFSOUT/mds/perf $NFSOUT/mds/cpu $NFSOUT/mon $NFSOUT/config $NFSOUT/client $NFSOUT/ceph-deploy > /dev/null 2>&1
+mkdir -p $NFSOUT/dump-daemons $NFSOUT/osd/perf $NFSOUT/osd/cpu $NFSOUT/mds/perf $NFSOUT/mds/cpu $NFSOUT/mon $NFSOUT/config $NFSOUT/client > /dev/null 2>&1
 
 if [ "$cmd" == teardown ]; then
     echo -n "I'm about to tear down the Ceph cluster, are you sure [y/n]? "
@@ -65,6 +65,7 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
     
     # copy some last things over
     tar czvf $NFSOUT.tar.gz $NFSOUT >> /dev/null 2>&1
+    sudo chown -R msevilla:msevilla $NFSOUT.tar.gz $NFSOUT
     
     echo "killing collectl, deleting logs..."
     for i in $ALL; do
