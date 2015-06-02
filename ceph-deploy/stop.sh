@@ -56,7 +56,6 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
         ssh issdm-$i "  cp -r $OUT/* $NFSOUT/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
     done
-    mkdir $NFSOUT/client $NFSOUT/cpu
     for i in $CLIENTs; do
         echo "issdm-$i" 
         ssh issdm-$i "  cp -r $OUT/* $NFSOUT/; \
@@ -64,7 +63,10 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
     done
     
     # copy some last things over
-    tar czvf $NFSOUT.tar.gz $NFSOUT >> /dev/null 2>&1
+    DIR=`dirname $NFSOUT`
+    cd $DIR
+    FNAME=`basename $NFSOUT`
+    tar czvf $FNAME.tar.gz $FNAME >> /dev/null 2>&1
     sudo chown -R msevilla:msevilla $NFSOUT.tar.gz $NFSOUT
     
     echo "killing collectl, deleting logs..."
@@ -77,58 +79,41 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
     done
     
     if [ "$CMD" == "teardown" ]; then
-        if [ $UNINSTALL -eq 1 ]; then 
-            echo "Uninstalling on all nodes: $ALL"
-            for i in $ALL
-            do
-                ceph-deploy purge issdm-$i;
-                ceph-deploy purgedata issdm-$i;
-                ceph-deploy purge issdm-$i;
-                ceph-deploy purgedata issdm-$i;
-                sudo dpkg --remove ceph-lua; 
-                sudo dpkg --purge librbd1;
-                sudo apt-get remove -y librbd1 ceph-fuse; 
-            done
-            echo
-        fi
-        
         ceph-deploy forgetkeys;
         
         echo "Stopping MDSs..."
         for i in $MDSs; do
             echo -e "\tissdm-$i"
-            ssh issdm-$i "  sudo stop ceph-mds id=issdm-$i; \
-                            sudo opcontrol --deinit;" > $LOG 2>&1
+            ssh issdm-$i "  sudo stop ceph-mds id=issdm-$i;"
         done
         echo
         
         echo "Stopping OSDs..."
         for i in $OSDs; do
             echo -e "\tissdm-$i"
-            ssh issdm-$i "  /user/msevilla/ceph-deploy/job-scripts/cleanup-osd.sh; \
-                            " >> $LOG 2>&1
+            ssh issdm-$i "  /user/msevilla/ceph-deploy/job-scripts/cleanup-osd.sh;"
         done
         echo
         
         echo "Stopping MONs..."
         for i in $MONs; do
             echo -e "\tissdm-$i"
-            ssh issdm-$i "  sudo stop ceph-mon id=issdm-$i" >> $LOG 2>&1
+            ssh issdm-$i "  sudo stop ceph-mon id=issdm-$i"
         done
         echo
         
         echo "Checking for straggler processes..."
-        for i in $ALLz; do
+        for i in $ALL; do
             echo -e "\tissdm-$i"
             ssh issdm-$i "  sudo stop ceph-all; \
                             sudo rm -r --one-file-system /var/lib/ceph/* /var/log/ceph/* /etc/ceph/*; \
                             sudo rm -r --one-file-system /mnt/ssd1/msevilla/* /mnt/ssd2/msevilla/* /mnt/ssd3/msevilla/*; \
-                            sudo rm -r --one-file-system /mnt/vol1/msevilla/* /mnt/vol2/msevilla/* /mnt/vol3/msevilla/*;" >> $LOG 2>&1
+                            sudo rm -r --one-file-system /mnt/vol1/msevilla/* /mnt/vol2/msevilla/* /mnt/vol3/msevilla/*;" >> /dev/null 2>&1
             ssh issdm-$i "  ps aux | grep ceph | grep \"fuse\|mds\|osd\|mon\" | grep -v \"grep\""
         done 
         echo
         echo -e "Cleanup working dir"
-        rm ceph.conf  ceph.log  ceph-startup.log
+        rm ceph.conf  ceph.log  ceph-startup.log >> /dev/null 2>&1
     fi
 elif [ "$CMD" == "reset" ]; then
     echo "Resetting the cluster (same configs)"
