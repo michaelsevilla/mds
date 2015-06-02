@@ -3,6 +3,8 @@
 source config/cluster.sh
 set -e
 
+LOG="./ceph-startup.log"
+
 echo "Starting MONs on $MONs"
 ceph-deploy new issdm-$MONs;
 ssh issdm-$MONs "   sudo mkdir -p /mnt/vol2/msevilla/ceph-logs/mon /var/log/ceph /mnt/vol2/msevilla/ceph-logs/client /etc/ceph;"
@@ -22,6 +24,7 @@ for i in $ALL; do
    ceph-deploy admin issdm-$i
 done
 echo
+
 
 echo "Starting OSDs on $OSDs"
 for i in $OSDs; do

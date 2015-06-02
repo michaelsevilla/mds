@@ -63,11 +63,16 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
     done
     
     # copy some last things over
+    DIR=`pwd`
+    echo -e "Cleanup working dir: $DIR"
+    ls $DIR
+    rm ceph.conf  ceph.log  ceph-startup.log *.keyring *.conf *.log 
     DIR=`dirname $NFSOUT`
     cd $DIR
     FNAME=`basename $NFSOUT`
     tar czvf $FNAME.tar.gz $FNAME >> /dev/null 2>&1
     sudo chown -R msevilla:msevilla $NFSOUT.tar.gz $NFSOUT
+    cd -
     
     echo "killing collectl, deleting logs..."
     for i in $ALL; do
@@ -112,8 +117,6 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
             ssh issdm-$i "  ps aux | grep ceph | grep \"fuse\|mds\|osd\|mon\" | grep -v \"grep\""
         done 
         echo
-        echo -e "Cleanup working dir"
-        rm ceph.conf  ceph.log  ceph-startup.log >> /dev/null 2>&1
     fi
 elif [ "$CMD" == "reset" ]; then
     echo "Resetting the cluster (same configs)"
