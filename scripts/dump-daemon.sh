@@ -17,7 +17,7 @@ source $CONFIG
 LOG="$OUT/dump-daemons/dump-daemon-$DAEMON.log"
 
 sudo chown -R msevilla:msevilla /mnt/vol2/msevilla/ceph-logs 
-mkdir -p $OUT/dump-daemons $OUT/osd/perf $OUT/osd/cpu $OUT/mds/perf $OUT/mds/cpu $OUT/mon $OUT/config $OUT/client 
+mkdir -p $OUT/dump-daemons $OUT/osd/perf $OUT/osd/cpu $OUT/mds/perf $OUT/mds/cpu $OUT/mon $OUT/config $OUT/client/cpu
 echo "$DAEMON daemon started at `date`" > $LOG
 echo "config: $CONFIG" >> $LOG
 echo "out: $OUT" >> $LOG 
@@ -45,6 +45,10 @@ elif [ "$DAEMON" == "osd" ]; then
     echo "SETTING UP OSD $HOST" >> $LOG
     echo "... launching collectl" >> $LOG
     sudo collectl -o z -D -P -i 10 -f $OUT/osd/cpu/ >> $LOG 2>&1
+elif [ "$DAEMON" == "client" ]; then
+    echo "SETTING UP CLIENT $HOST" >> $LOG
+    echo "... launching collectl" >> $LOG
+    sudo collectl -o z -D -P -i 10 -f $OUT/client/cpu/ >> $LOG 2>&1
 fi
 
 i=0

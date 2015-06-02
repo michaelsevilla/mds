@@ -20,7 +20,9 @@ echo "Working directory: $WORKINGDIR"
 SCRIPTS="`dirname $WORKINGDIR`/scripts"
 echo "Scripts directory: $SCRIPTS"
 
-mkdir -p $NFSOUT/dump-daemons $NFSOUT/osd/perf $NFSOUT/osd/cpu $NFSOUT/mds/perf $NFSOUT/mds/cpu $NFSOUT/mon $NFSOUT/config $NFSOUT/client > /dev/null 2>&1
+mkdir -p    $NFSOUT/osd/perf $NFSOUT/osd/cpu \
+            $NFSOUT/mds/perf $NFSOUT/mds/cpu $NFSOUT/mds/lttng_traces \
+            $NFSOUT/mon $NFSOUT/config $NFSOUT/client $NFSOUT/dump-daemons > /dev/null 2>&1
 
 if [ "$cmd" == teardown ]; then
     echo -n "I'm about to tear down the Ceph cluster, are you sure [y/n]? "
@@ -42,49 +44,52 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
     echo "copying logs..."
     for i in $MONs; do
         echo "issdm-$i (MON)"
-        ssh issdm-$i "  cp -r $OUT/* $NFSOUT/; \
+        ssh issdm-$i "  sudo chown -R msevilla:msevilla $OUT; \
+                        cp -r $OUT/* $NFSOUT/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/; \
                         sudo cp /etc/ceph/ceph.conf $NFSOUT/config/ceph.conf; " >> /dev/null 2>&1
     done
     for i in $MDSs; do
         echo "issdm-$i (MDS)" 
-        ssh issdm-$i "  cp -r $OUT/* $NFSOUT/; \
+        ssh issdm-$i "  sudo chown -R msevilla:msevilla $OUT; \
+                        cp -r $OUT/* $NFSOUT/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
     done
     for i in $OSDs; do
         echo "issdm-$i (OSD)"
-        ssh issdm-$i "  cp -r $OUT/* $NFSOUT/; \
+        ssh issdm-$i "  sudo chown -R msevilla:msevilla $OUT; \
+                        cp -r $OUT/* $NFSOUT/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
     done
     for i in $CLIENTs; do
         echo "issdm-$i" 
-        ssh issdm-$i "  cp -r $OUT/* $NFSOUT/; \
+        ssh issdm-$i "  sudo chown -R msevilla:msevilla $OUT; \
+                        cp -r $OUT/* $NFSOUT/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
     done
     
-    # copy some last things over
-    DIR=`pwd`
-    echo -e "Cleanup working dir: $DIR"
-    ls $DIR
-    rm ceph.conf  ceph.log  ceph-startup.log *.keyring *.conf *.log 
-    DIR=`dirname $NFSOUT`
-    cd $DIR
-    FNAME=`basename $NFSOUT`
-    tar czvf $FNAME.tar.gz $FNAME >> /dev/null 2>&1
-    sudo chown -R msevilla:msevilla $NFSOUT.tar.gz $NFSOUT
-    cd -
-    
+   
     echo "killing collectl, deleting logs..."
     for i in $ALL; do
         echo -e "\t issdm-$i"
         ssh issdm-$i " sudo pkill collectl; \
                        ps ax | grep dump | grep -v greph | awk '{print \$1}' | while read p; do sudo kill -9 \$p; done; \
-                       rm -r $OUT/* > /dev/null 2>&1; \
+                       rm -r $OUT/*/cpu $OUT/*/perf $OUT/mon/* > /dev/null 2>&1; \
                        ls $OUT;" >> /dev/null 2>&1
     done
+
+    
+    DIR=`dirname $NFSOUT`
+    FNAME=`basename $NFSOUT`
+    cd $DIR
+    tar czvf $FNAME.tar.gz $FNAME >> /dev/null 2>&1
+    sudo chown -R msevilla:msevilla $NFSOUT.tar.gz $NFSOUT
+    cd -
     
     if [ "$CMD" == "teardown" ]; then
-        ceph-deploy forgetkeys;
+        echo -e "Cleanup working dir: $DIR"
+        ceph-deploy forgetkeys
+        rm ceph.conf  ceph.log  ceph-startup.log *.keyring *.conf *.log 
         
         echo "Stopping MDSs..."
         for i in $MDSs; do
@@ -111,6 +116,7 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
         for i in $ALL; do
             echo -e "\tissdm-$i"
             ssh issdm-$i "  sudo stop ceph-all; \
+                            sudo rm -r $OUT/*; \
                             sudo rm -r --one-file-system /var/lib/ceph/* /var/log/ceph/* /etc/ceph/*; \
                             sudo rm -r --one-file-system /mnt/ssd1/msevilla/* /mnt/ssd2/msevilla/* /mnt/ssd3/msevilla/*; \
                             sudo rm -r --one-file-system /mnt/vol1/msevilla/* /mnt/vol2/msevilla/* /mnt/vol3/msevilla/*;" >> /dev/null 2>&1

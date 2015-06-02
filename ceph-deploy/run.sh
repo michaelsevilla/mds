@@ -6,47 +6,43 @@ ROOTDIR=`dirname $DIR`
 SCRIPTS="$ROOTDIR/scripts"
 source $CONFIG
 
+echo
+echo "-----------------------------"
 echo "--- START MONITORING THE CLUSTER using CONFIG=$CONFIG"
-$SCRIPTS/ssh-all.sh MONs "$SCRIPTS/dump-daemon.sh mon $CONFIG" $CONFIG
-exit
-for MON in $MONs; do
-    CMD="$SCRIPTS/dump-daemon.sh mon $CONFIG"
-    echo "... issdm-$MON: $CMD"
-    ssh -f issdm-$MON "$CMD"
-done
-for MDS in $MDSs; do
-    CMD="$SCRIPTS/dump-daemon.sh mds $CONFIG"
-    echo "... issdm-$MDS: $CMD"
-    #ssh -f issdm-$MDS "$CMD"
-done
-for OSD in $OSDs; do 
-    CMD="$SCRIPTS/dump-daemon.sh osd $CONFIG"
-    echo "... issdm-$OSD: $CMD"
-    #ssh -f issdm-$OSD "$CMD"
-done
+echo "-----------------------------"
+$SCRIPTS/ssh-all.sh MONs $CONFIG "$SCRIPTS/dump-daemon.sh mon $CONFIG"
+$SCRIPTS/ssh-all.sh MDSs $CONFIG "$SCRIPTS/dump-daemon.sh mds $CONFIG"
+$SCRIPTS/ssh-all.sh OSDs $CONFIG "$SCRIPTS/dump-daemon.sh osd $CONFIG"
+$SCRIPTS/ssh-all.sh CLIENTs $CONFIG "$SCRIPTS/dump-daemon.sh client $CONFIG"
+$SCRIPTS/ssh-all.sh MDSs $CONFIG \
+    "sudo lttng destroy; \
+     sudo lttng create -o $OUT/lttng_traces; \
+     sudo lttng enable-event -u --tracepoint \"mds:req*\"; \
+     sudo lttng add-context -u -t pthread_id; \
+     sudo lttng start"
 
-echo "--- STARTING LTTNG"
-for MDS in $MDSs; do
-    CMD="$SCRIPTS/start_lttng.sh"
-    echo "... issdm-$MDS: $CMD"
-    #ssh -f issdm-$MDS "$CMD"
-done
-
+echo
+echo "-----------------------------"
 echo "--- START CLIENT"
-for CLIENT in $CLIENTs; do
-    CMD="(sudo ceph-fuse /mnt/cephfs -d) > /mnt/vol2/msevilla/ceph-logs/client/client$CLIENT 2>&1"
-    echo "... issdm-$CLIENT: $CMD"
-    ssh -f issdm-$CLIENT "$CMD"
-    CMD="sudo chown -R msevilla:msevilla /mnt/cephfs"
-    echo "... issdm-$CLIENT: $CMD"
-    ssh -f issdm-$CLIENT "$CMD"
-done
+echo "-----------------------------"
+$SCRIPTS/ssh-all.sh CLIENTs $CONFIG \
+    "(sudo ceph-fuse /mnt/cephfs -d) > /mnt/vol2/msevilla/ceph-logs/client/client$CLIENT 2>&1"
+$SCRIPTS/ssh-all.sh CLIENTs $CONFIG \
+    "sudo chown -R msevilla:msevilla /mnt/cephfs"
 
+JOB="/user/msevilla/programs/mdtest/mdtest -F -C -n 100 -d /mnt/cephfs/dir2"
+echo 
+echo "-----------------------------"
+echo "--- RUN THE JOB: $JOB"
+echo "-----------------------------"
+$SCRIPTS/ssh-all.sh CLIENTs $CONFIG \
+    "$JOB" blocking
+
+
+echo 
+echo "-----------------------------"
 echo "--- DESTROYING LTTNG"
-for MDS in $MDSs; do
-    CMD="/usr/bin/lttng stop"
-    echo "... issdm-$MDS: $CMD"
-    #ssh -f issdm-$MDS "$CMD"
-done
+echo "-----------------------------"
+$SCRIPTS/ssh-all.sh MDSs $CONFIG "sudo /usr/bin/lttng stop"
 
 
