@@ -64,7 +64,7 @@ def main(argv):
             print("\n\tusage: " + sys.argv[0] + " -t <operation> -w <window> -o <outputfile> -d <LTTng trace dir>", file=sys.stderr)
             print("\n\nOperations: ", end=" ", file=sys.stderr)
             for r in requests:
-                print(requests[r]["op"], end=" ", file=sys.stderr)
+                print(str(r) + " " + requests[r]["op"], end=" ", file=sys.stderr)
             print("\n\n", file=sys.stderr)
             sys.exit(0)
         elif opt in ("-t", "--type"): op = arg
@@ -79,19 +79,18 @@ def main(argv):
     # initialize some stuff
     traces = TraceCollection()
     ret = traces.add_trace(trace, "ctf")
-    servicers = {}; latencies = {}
+    inflight = {}; latencies = {}
     start = sys.maxsize; finish = -1
     
     # get the latencies for the specified operation
     count = 1
     for event in traces.events:
         if requests[event["type"]]["op"] == op:
-            ts, addr, pthread_id = event.timestamp, event["addr"], event["pthread_id"]
+            ts, tid  = event.timestamp, event["tid"]
     
             # get the thread servicing the client request
-            servicer = (pthread_id, addr)
             if event.name == "mds:req_received":
-                servicers[servicer] = ts
+                inflight[tid] = ts
             elif event.name == "mds:req_replied" or event.name == "mds:req_early_replied":
                 # get the first/last timestamp
                 if ts < start: start = ts
@@ -103,8 +102,9 @@ def main(argv):
                     if t not in latencies:
                         latencies[t] = {}
                         latencies[t]["all"] = []
-                    latencies[t]["all"].append(ts - servicers[servicer])
-                    del servicers[servicer]
+                    latencies[t]["all"].append(ts - inflight[tid])
+                    print ("latency: (" + str(addr) + " " + str(pthread_id) + "): time=" + str(t) + " " + str(ts - inflight[tid]))
+                    del inflight[tid]
                 except KeyError:
                     continue
         count += 1
