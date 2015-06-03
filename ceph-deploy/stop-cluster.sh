@@ -1,30 +1,39 @@
 #!/bin/bash
-source config/cluster.sh
 
-if [ $# -lt 2 ]; then
-    echo -e "USAGE: $0 <output dir> [reset|stop|teardown]"
+if [ $# -lt 3 ]; then
+    echo -e "USAGE: $0 <config> <output dir> [reset|stop|teardown]"
     echo -e "Options:"
+    echo -e "\t config:     configuration file for the cluster"
     echo -e "\t output dir: where to put the ceph logs"
-    echo -e "\t reset: delete the data"
-    echo -e "\t stop: stop collectl, unmount clients, copy logs"
-    echo -e "\t teardown: stop all Ceph daemons and delete data"
+    echo -e "\t reset:      delete the data"
+    echo -e "\t stop:       stop collectl, unmount clients, copy logs"
+    echo -e "\t teardown:   stop all Ceph daemons and delete data"
     exit
 fi
 
-NFSOUT=$1
-echo "Writing to $NFSOUT"
-CMD=$2
-echo "Command: $CMD"
-WORKINGDIR=`pwd`
-echo "Working directory: $WORKINGDIR"
-SCRIPTS="`dirname $WORKINGDIR`/scripts"
+CONFIG=`readlink -f $1`
+NFSOUT=`readlink -f $2`
+CMD=$3
+CONFDIR=`dirname $CONFIG`
+DEPLOYDIR=`dirname $CONFDIR`
+ROOTDIR=`dirname $DEPLOYDIR`
+SCRIPTS="$ROOTDIR/scripts"
+source $CONFIG
+
+echo "==================="
+echo "Command:           $CMD"
+echo "NFS directory:     $NFSOUT"
+echo "Root directory:    $ROOTDIR"
+echo "Root directory:    $CONFDIR"
+echo "Deploy directory:  $DEPLOYDIR"
 echo "Scripts directory: $SCRIPTS"
+echo "==================="
 
 mkdir -p    $NFSOUT/osd/perf $NFSOUT/osd/cpu \
             $NFSOUT/mds/perf $NFSOUT/mds/cpu $NFSOUT/mds/lttng_traces \
             $NFSOUT/mon $NFSOUT/config $NFSOUT/client $NFSOUT/dump-daemons > /dev/null 2>&1
 
-if [ "$cmd" == teardown ]; then
+if [ "$cmd" == "teardown" ]; then
     echo -n "I'm about to tear down the Ceph cluster, are you sure [y/n]? "
     read teardown
     if [ "$teardown" == "n" ]; then
@@ -43,26 +52,26 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
     
     echo "copying logs..."
     for i in $MONs; do
-        echo "issdm-$i (MON)"
+        echo -e "\t issdm-$i (MON)"
         ssh issdm-$i "  sudo chown -R msevilla:msevilla $OUT; \
                         cp -r $OUT/* $NFSOUT/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/; \
                         sudo cp /etc/ceph/ceph.conf $NFSOUT/config/ceph.conf; " >> /dev/null 2>&1
     done
     for i in $MDSs; do
-        echo "issdm-$i (MDS)" 
+        echo -e "\t issdm-$i (MDS)" 
         ssh issdm-$i "  sudo chown -R msevilla:msevilla $OUT; \
                         cp -r $OUT/* $NFSOUT/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
     done
     for i in $OSDs; do
-        echo "issdm-$i (OSD)"
+        echo -e "\t issdm-$i (OSD)"
         ssh issdm-$i "  sudo chown -R msevilla:msevilla $OUT; \
                         cp -r $OUT/* $NFSOUT/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
     done
     for i in $CLIENTs; do
-        echo "issdm-$i" 
+        echo -e "\t issdm-$i" 
         ssh issdm-$i "  sudo chown -R msevilla:msevilla $OUT; \
                         cp -r $OUT/* $NFSOUT/; \
                         sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
@@ -74,7 +83,7 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
         echo -e "\t issdm-$i"
         ssh issdm-$i " sudo pkill collectl; \
                        ps ax | grep dump | grep -v greph | awk '{print \$1}' | while read p; do sudo kill -9 \$p; done; \
-                       rm -r $OUT/*/cpu $OUT/*/perf $OUT/mon/* > /dev/null 2>&1; \
+                       rm -r $OUT/* > /dev/null 2>&1; \
                        ls $OUT;" >> /dev/null 2>&1
     done
 
@@ -99,10 +108,7 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
         echo
         
         echo "Stopping OSDs..."
-        for i in $OSDs; do
-            echo -e "\tissdm-$i"
-            ssh issdm-$i "  $SCRIPTS/cleanup-osd.sh osd"
-        done
+        $SCRIPTS/ssh-all.sh OSDs $CONFIG "$SCRIPTS/cleanup.sh osd" blocking
         echo
         
         echo "Stopping MONs..."

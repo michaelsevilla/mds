@@ -30,7 +30,7 @@ $SCRIPTS/ssh-all.sh CLIENTs $CONFIG \
 $SCRIPTS/ssh-all.sh CLIENTs $CONFIG \
     "sudo chown -R msevilla:msevilla /mnt/cephfs"
 
-JOB="/user/msevilla/programs/mdtest/mdtest -F -C -n 100 -d /mnt/cephfs/dir2"
+JOB="/user/msevilla/programs/mdtest/mdtest -F -C -n 100 -d /mnt/cephfs/dir5; sleep 20"
 echo 
 echo "-----------------------------"
 echo "--- RUN THE JOB: $JOB"

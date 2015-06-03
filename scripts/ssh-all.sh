@@ -5,7 +5,6 @@ if [ "$#" -lt 3 ]; then
     echo "Usage: $0 <who> <config> <command> (blocking)"
     exit
 fi
-echo "config=$2"
 source $2
 
 who="$1" 
