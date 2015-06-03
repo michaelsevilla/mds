@@ -103,7 +103,6 @@ def main(argv):
                         latencies[t] = {}
                         latencies[t]["all"] = []
                     latencies[t]["all"].append(ts - inflight[tid])
-                    print ("latency: (" + str(addr) + " " + str(pthread_id) + "): time=" + str(t) + " " + str(ts - inflight[tid]))
                     del inflight[tid]
                 except KeyError:
                     continue
@@ -118,6 +117,7 @@ def main(argv):
     avgLatencies = []
     times = []
     for k,v in sorted(latencies.items()):
+        print("len of " + str(k) + " is " + str(len(v["all"])))
         if v and v["all"]:
             times.append(k)
             avgLatencies.append(numpy.mean(v["all"]))
@@ -144,7 +144,7 @@ def main(argv):
             " start=" + time.strftime('%H:%M:%S',  time.localtime(start/1e9)) + 
             " finish=" + time.strftime('%H:%M:%S',  time.localtime(finish/1e9)) + "\n")
     prevLat = 0; prevMvAvg = 0
-    for ts in range(math.floor(start/1e9) - 1, math.floor(finish/1e9)):
+    for ts in range(math.floor(start/1e9) - 1, math.floor(finish/1e9) + 1):
         t = time.strftime('%H:%M:%S',  time.localtime(ts))
         try:
             f.write(str(t) + 
