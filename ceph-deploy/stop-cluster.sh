@@ -43,12 +43,10 @@ fi
 
 if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; then
     echo "umounting..."
-    for CLIENT in $CLIENTs; do
-        echo -e "\t issdm-$CLIENT"
-        ssh issdm-$CLIENT " sudo umount /mnt/cephfs > /dev/null 2>&1; \
-                            sudo pkill ceph-fuse; \
-                            $SCRIPTS/cleanup.sh client" >> /dev/null 2>&1
-    done
+    CMD="sudo umount /mnt/cephfs > /dev/null 2>&1"
+    CMD="$CMD; sudo pkill ceph-fuse"
+    CMD="$CMD; $SCRIPTS/cleanup.sh client"
+    $SCRIPTS/ssh-all.sh CLIENTs $CONFIG "$CMD" blocking
     
     echo "copying logs..."
     for i in $MONs; do
