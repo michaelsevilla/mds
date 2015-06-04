@@ -43,10 +43,10 @@ fi
 
 if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; then
     echo "umounting..."
-    CMD="sudo umount /mnt/cephfs > /dev/null 2>&1"
-    CMD="$CMD; sudo pkill ceph-fuse"
-    CMD="$CMD; $SCRIPTS/cleanup.sh client"
-    $SCRIPTS/ssh-all.sh CLIENTs $CONFIG "$CMD" blocking
+    UMOUNT="sudo umount /mnt/cephfs > /dev/null 2>&1"
+    UMOUNT="$UMOUNT; sudo pkill ceph-fuse"
+    UMOUNT="$UMOUNT; $SCRIPTS/cleanup.sh client"
+    $SCRIPTS/ssh-all.sh CLIENTs $CONFIG "$UMOUNT" blocking
     
     echo "copying logs..."
     for i in $MONs; do
@@ -85,14 +85,13 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
                        ls $OUT;" >> /dev/null 2>&1
     done
 
-    
+    echo "tarring up the logs"    
     DIR=`dirname $NFSOUT`
     FNAME=`basename $NFSOUT`
     cd $DIR
     tar czvf $FNAME.tar.gz $FNAME >> /dev/null 2>&1
     sudo chown -R msevilla:msevilla $NFSOUT.tar.gz $NFSOUT
     cd -
-    
     if [ "$CMD" == "teardown" ]; then
         echo -e "Cleanup working dir: $DIR"
         ceph-deploy forgetkeys
@@ -127,27 +126,27 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
             ssh issdm-$i "  ps aux | grep ceph | grep \"fuse\|mds\|osd\|mon\" | grep -v \"grep\""
         done 
         echo
+    elif [ "$CMD" == "reset" ]; then
+        echo "Resetting the cluster (same configs)"
+        echo "PGs=$PGs"
+        ceph mds set_max_mds 20; 
+        ceph mds cluster_down; 
+        for i in {0..20}; do
+            ceph mds fail $i
+        done
+        ceph fs rm sevilla_fs --yes-i-really-mean-it; 
+        ceph osd pool delete cephfs_data cephfs_data --yes-i-really-really-mean-it;
+        ceph osd pool delete cephfs_metadata cephfs_metadata --yes-i-really-really-mean-it;
+        ceph osd pool create cephfs_data $PGs; 
+        ceph osd pool create cephfs_metadata $PGs; 
+        ceph osd pool set cephfs_data size 1; 
+        ceph osd pool set cephfs_metadata size 1; 
+        ceph fs new sevilla_fs cephfs_metadata cephfs_data; 
+        sudo ceph osd crush tunables legacy
+        sudo ceph osd pool set rbd hashpspool false
+        sudo ceph osd pool set cephfs_data hashpspool false
+        sudo ceph osd pool set cephfs_metadata hashpspool false   
     fi
-elif [ "$CMD" == "reset" ]; then
-    echo "Resetting the cluster (same configs)"
-    echo "PGs=$PGs"
-    ceph mds set_max_mds 20; 
-    ceph mds cluster_down; 
-    for i in {0..20}; do
-        ceph mds fail $i
-    done
-    ceph fs rm sevilla_fs --yes-i-really-mean-it; 
-    ceph osd pool delete cephfs_data cephfs_data --yes-i-really-really-mean-it;
-    ceph osd pool delete cephfs_metadata cephfs_metadata --yes-i-really-really-mean-it;
-    ceph osd pool create cephfs_data $PGs; 
-    ceph osd pool create cephfs_metadata $PGs; 
-    ceph osd pool set cephfs_data size 1; 
-    ceph osd pool set cephfs_metadata size 1; 
-    ceph fs new sevilla_fs cephfs_metadata cephfs_data; 
-    sudo ceph osd crush tunables legacy
-    sudo ceph osd pool set rbd hashpspool false
-    sudo ceph osd pool set cephfs_data hashpspool false
-    sudo ceph osd pool set cephfs_metadata hashpspool false   
 else
     echo -e "Unrecognized command: $CMD"
 fi

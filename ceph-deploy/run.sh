@@ -1,5 +1,4 @@
 #!/bin/bash
-
 DIR=`pwd`
 CONFIG="$DIR/config/cluster.sh"
 ROOTDIR=`dirname $DIR`
@@ -30,14 +29,12 @@ $SCRIPTS/ssh-all.sh CLIENTs $CONFIG \
 $SCRIPTS/ssh-all.sh CLIENTs $CONFIG \
     "sudo chown -R msevilla:msevilla /mnt/cephfs"
 
-JOB="/user/msevilla/programs/mdtest/mdtest -F -C -n 100 -d /mnt/cephfs/dir5; sleep 20"
+JOB="mpirun --mca btl_tcp_if_include eth1 --host issdm-5 /user/msevilla/programs/mdtest/mdtest -n 100000 -F -C -d /mnt/cephfs/shared"
 echo 
 echo "-----------------------------"
 echo "--- RUN THE JOB: $JOB"
 echo "-----------------------------"
-$SCRIPTS/ssh-all.sh CLIENTs $CONFIG \
-    "$JOB" blocking
-
+eval $JOB > /mnt/vol2/msevilla/ceph-logs/client/clients.log 2>&1
 
 echo 
 echo "-----------------------------"
