@@ -37,3 +37,11 @@ sudo mount /dev/sdb1 /mnt/vol1 -o noexec -o noexec -o nodev -o noatime -o nodira
 # Insert Ceph Where balancer
 sudo ceph --admin-daemon /var/run/ceph/ceph-mds.issdm-15.asok config set mds_bal_where "\\ne=1;i=1;eLoad=1;iLoad=1\\ntarget=total/#MDSs\\nfor_i=0,#MDSs\\n__if_MDSs[i][\"load\"]<target_then_table.insert(importers,{i,MDSs[i][\"load\"})\\n__else_table.insert(exporters,{i,MDSs[i][\"load\"]}_end\\ntable.sort(exporters,function(a,b)_return_a[2]>b[2]_end)\\ntable.sort(importers,function(a,b)_return_a[2]>b[2]_end)\\nwhile_(e<=#exporters_and_i<=#importers)_and_(eLoad<.001_and_iLoad>.001)_do\\n__niLoad=target-importers[i][2]\\n__eLoad=exporters[e][2]-target\\n__amount=math.min(eLoad,iLoad)\\n__if_e==whoami_then_targets[i]=targets[i]+amount_end\\n__exporters[e][2]=exporters[e][2]-amount\n__importers[i][2]=importers[i][2]+amount\\n__if_eLoad<=.001_then_e=e+1_end\\n__if_iLoad<=.001_then_i=i+1_end\\nend"
 sudo ceph --admin-daemon /var/run/ceph/ceph-mds.issdm-15.asok config set mds_bal_where "\\ne=1;i=1;eLoad=1;iLoad=1\\ntarget=total/#MDSs\\nfor_i=0,#MDSs_do\\n__if_MDSs[i][\"load\"]<target_then_table.insert(importers,{i,MDSs[i][\"load\"]})\\n__else_table.insert(exporters,{i,MDSs[i][\"load\"]})_end\\ntable.sort(exporters,function(a,b)_return_a[2]>b[2]_end)\\ntable.sort(importers,function(a,b)_return_a[2]>b[2]_end)\\nwhile_(e<=#exporters_and_i<=#importers)_and_(eLoad<.001_and_iLoad>.001)_do\\n__niLoad=target-importers[i][2]\\n__eLoad=exporters[e][2]-target\\n__amount=math.min(eLoad,iLoad)\\n__if_e==whoami_then_targets[i]=targets[i]+amount_end\\n__exporters[e][2]=exporters[e][2]-amount\n__importers[i][2]=importers[i][2]+amount\\n__if_eLoad<=.001_then_e=e+1_end\\n__if_iLoad<=.001_then_i=i+1_end\\nend"
+
+# Add new experiment:
+git submodule add https://github.com/michaelsevilla/mds.git cluster/3client/src/mds
+git submodule add https://github.com/michaelsevilla/ceph.git cluster/3client/src/ceph
+git checkout wip-reqlatency
+git status
+git add .gitmodules
+

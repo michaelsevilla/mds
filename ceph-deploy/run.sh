@@ -29,7 +29,7 @@ $SCRIPTS/ssh-all.sh CLIENTs $CONFIG \
 $SCRIPTS/ssh-all.sh CLIENTs $CONFIG \
     "sudo chown -R msevilla:msevilla /mnt/cephfs"
 
-JOB="mpirun --mca btl_tcp_if_include eth1 --host issdm-5,issdm-10,issdm-41 /user/msevilla/programs/mdtest/mdtest -n 100000 -F -C -d /mnt/cephfs/shared"
+JOB="mpirun --mca btl_tcp_if_include eth1 --host issdm-5,issdm-10,issdm-41,issdm-7,issdm-0 /user/msevilla/programs/mdtest/mdtest -n 100000 -F -C -d /mnt/cephfs/shared"
 echo 
 echo "-----------------------------"
 echo "--- RUN THE JOB: $JOB"
