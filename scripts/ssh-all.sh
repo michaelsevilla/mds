@@ -25,7 +25,7 @@ if [ "$who" == "MDSs" ]; then
 elif [ "$who" == "MONs" ]; then
     d=$MONs
 elif [ "$who" == "ALL" ]; then
-    d=$ALL
+    d="$MONs $MDSs $OSDs $CLIENTs"
 elif [ "$who" == "OSDs" ]; then
     d=$OSDs
 elif [ "$who" == "CLIENTs" ]; then
@@ -43,11 +43,11 @@ echo "==================="
 sleep 1
 for i in $d; do
     echo
-    echo "----- issdm-$i -----"
+    echo "----- $i -----"
     if [ $blocking -eq 0 ]; then
-        ssh -f issdm-$i $what
+        ssh -f $i $what
     else
-        ssh issdm-$i $what
+        ssh $i $what
     fi
     sleep 1
 done

@@ -1,23 +1,19 @@
 #!/bin/bash
 
-# Nodes
-ALL="0 3 5 7 10 11 15 21 34 39 40 41"
-MONs="3"
-MDSs="15"
-OSDs="0 7 11 21 34 40"
-DEAD="46 36 25"
-CLIENTs="5 10 41 0 7"
-COLOCATED_CLIENTS=1
-DEAD=""
+# Add hostanmes here (ensure passwordless login)
+MONs="issdm-3"
+MDSs="issdm-15"
+OSDs="issdm-0 issdm-7 issdm-11 issdm-21 issdm-34 issdm-40"
+DEAD="issdm-46 issdm-36 issdm-25"
+CLIENTs="issdm-0 issdm-7 issdm-11 issdm-21 issdm-34 issdm-40"
 
-# Install
-UNSTABLE=1
-INSTALL=0
-UNINSTALL=0
+# Sample rate
+INTERVAL=10
+
+# Where the Ceph daemons live
+SOCKET="/var/run/ceph/ceph-mds.issdm-*.asok"
+OSDSOCKET="/var/run/ceph/ceph-osd*.asok"
 
 # Log files (used collect.sh)
 OUT="/mnt/vol2/msevilla/ceph-logs"
-SOCKET="/var/run/ceph/ceph-mds.issdm-*.asok"
-OSDSOCKET="/var/run/ceph/ceph-osd*.asok"
-NFS="/user/msevilla/ceph-logs/"
-INTERVAL=10
+NFSOUT="/user/msevilla/pdsw15/experiments/cluster/1client-runs"

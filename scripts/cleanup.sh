@@ -12,6 +12,7 @@ if [ "$DAEMON" == "client" ]; then
 
     kill -9 $pid
     umount $mnt
+    rm -r /mnt/cephfs/*
 elif [ "$DAEMON" == "osd" ]; then
     osds=`ps ax | grep ceph-osd | grep -v grep | awk '{print $8}'`
     for o in $osds; do sudo stop ceph-osd id=$o; done

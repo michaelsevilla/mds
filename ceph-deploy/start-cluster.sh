@@ -55,15 +55,13 @@ for i in $MDSs; do
 done
 echo
 
-if [ $UNSTABLE -eq 1 ]; then
-    echo "Setting tunables"
-    sudo ceph osd crush tunables legacy
-    sudo ceph osd crush rule rm erasure_ruleset
-    sudo ceph osd pool set rbd hashpspool false
-    sudo ceph osd pool set cephfs_metadata hashpspool false
-    sudo ceph osd pool set cephfs_data hashpspool false
-    echo
-fi
+echo "Setting tunables"
+sudo ceph osd crush tunables legacy
+sudo ceph osd crush rule rm erasure_ruleset
+sudo ceph osd pool set rbd hashpspool false
+sudo ceph osd pool set cephfs_metadata hashpspool false
+sudo ceph osd pool set cephfs_data hashpspool false
+echo
 
 echo "Going to sleep while the cluster initializes..."
 sleep 60

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ $# -lt 3 ]; then
-    echo -e "USAGE: $0 <config> <output dir> [reset|stop|teardown]"
+    echo -e "USAGE: $0 <config> <output dir> <reset|stop|teardow>"
     echo -e "Options:"
     echo -e "\t config:     configuration file for the cluster"
     echo -e "\t output dir: where to put the ceph logs"
@@ -10,15 +10,14 @@ if [ $# -lt 3 ]; then
     echo -e "\t teardown:   stop all Ceph daemons and delete data"
     exit
 fi
-
-CONFIG=`readlink -f $1`
-NFSOUT=`readlink -f $2`
+CONFIG=$1
+source $CONFIG
+NFSOUT=$2
 CMD=$3
 CONFDIR=`dirname $CONFIG`
 DEPLOYDIR=`dirname $CONFDIR`
 ROOTDIR=`dirname $DEPLOYDIR`
 SCRIPTS="$ROOTDIR/scripts"
-source $CONFIG
 
 echo "==================="
 echo "Command:           $CMD"
