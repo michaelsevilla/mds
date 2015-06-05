@@ -41,93 +41,73 @@ if [ "$cmd" == "teardown" ]; then
 fi
 
 if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; then
-    echo "umounting..."
+    echo "... umounting..."
     UMOUNT="sudo umount /mnt/cephfs > /dev/null 2>&1"
     UMOUNT="$UMOUNT; sudo pkill ceph-fuse"
     UMOUNT="$UMOUNT; $SCRIPTS/cleanup.sh client"
     $SCRIPTS/ssh-all.sh CLIENTs $CONFIG "$UMOUNT" blocking
     
-    echo "copying logs..."
-    for i in $MONs; do
-        echo -e "\t issdm-$i (MON)"
-        ssh issdm-$i "  sudo chown -R msevilla:msevilla $OUT; \
-                        cp -r $OUT/* $NFSOUT/; \
-                        sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/; \
-                        sudo cp /etc/ceph/ceph.conf $NFSOUT/config/ceph.conf; " >> /dev/null 2>&1
-    done
-    for i in $MDSs; do
-        echo -e "\t issdm-$i (MDS)" 
-        ssh issdm-$i "  sudo chown -R msevilla:msevilla $OUT; \
-                        cp -r $OUT/* $NFSOUT/; \
-                        sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
-    done
-    for i in $OSDs; do
-        echo -e "\t issdm-$i (OSD)"
-        ssh issdm-$i "  sudo chown -R msevilla:msevilla $OUT; \
-                        cp -r $OUT/* $NFSOUT/; \
-                        sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
-    done
-    for i in $CLIENTs; do
-        echo -e "\t issdm-$i" 
-        ssh issdm-$i "  sudo chown -R msevilla:msevilla $OUT; \
-                        cp -r $OUT/* $NFSOUT/; \
-                        sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/" >> /dev/null 2>&1
-    done
-    
-   
-    echo "killing collectl, deleting logs..."
-    for i in $ALL; do
-        echo -e "\t issdm-$i"
-        ssh issdm-$i " sudo pkill collectl; \
-                       ps ax | grep dump | grep -v greph | awk '{print \$1}' | while read p; do sudo kill -9 \$p; done; \
-                       rm -r $OUT/* > /dev/null 2>&1; \
-                       ls $OUT;" >> /dev/null 2>&1
-    done
+    echo "... copying logs"
+    COPY="sudo chown -R msevilla:msevilla $OUT"
+    COPY="$COPY; cp -r $OUT/* $NFSOUT/"
+    COPY="$COPY; sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/"
+    $SCRIPTS/ssh-all.sh MDSs $CONFIG "$COPY" blocking
+    $SCRIPTS/ssh-all.sh OSDs $CONFIG "$COPY" blocking
+    $SCRIPTS/ssh-all.sh CLIENTs $CONFIG "$COPY" blocking
+    COPY="$COPY; sudo cp /etc/ceph/ceph.conf $NFSOUT/config/ceph.conf"
+    $SCRIPTS/ssh-all.sh MONs $CONFIG "$COPY" blocking
 
-    echo "tarring up the logs"    
+    echo "... killing collectl, deleting logs"
+    KILL="sudo pkill collectl"
+    KILL="$KILL; ps ax | grep dump | grep -v greph | awk '{print \$1}' | while read p; do sudo kill -9 \$p; done"
+    KILL="$KILL; rm -r $OUT/* > /dev/null 2>&1"
+    $SCRIPTS/ssh-all.sh ALL $CONFIG "$KILL" blocking >> /dev/null 2>&1
+
+    echo "... tarring up the logs"    
     DIR=`dirname $NFSOUT`
     FNAME=`basename $NFSOUT`
     cd $DIR
     tar czvf $FNAME.tar.gz $FNAME >> /dev/null 2>&1
     sudo chown -R msevilla:msevilla $NFSOUT.tar.gz $NFSOUT
     cd -
+
     if [ "$CMD" == "teardown" ]; then
-        echo -e "Cleanup working dir: $DIR"
+        echo -e "... cleanup working dir: $DIR"
         ceph-deploy forgetkeys
-        rm ceph.conf  ceph.log  ceph-startup.log *.keyring *.conf *.log 
+        rm ceph.conf ceph.log ceph-startup.log *.keyring *.conf *.log 
         
-        echo "Stopping MDSs..."
-        for i in $MDSs; do
+        echo "... stop MDSs"
+        # This must be done manually, since we need to feed in the MDS ID
+        for mds in $MDSs; do
             echo -e "\tissdm-$i"
-            ssh issdm-$i "  sudo stop ceph-mds id=issdm-$i;"
+            ssh $mds "sudo stop ceph-mds id=issdm-$i;" >> /dev/null 2>&1
         done
         echo
         
-        echo "Stopping OSDs..."
-        $SCRIPTS/ssh-all.sh OSDs $CONFIG "$SCRIPTS/cleanup.sh osd" blocking
+        echo "... stop OSDs"
+        $SCRIPTS/ssh-all.sh OSDs $CONFIG "$SCRIPTS/cleanup.sh osd" blocking >> /dev/null 2>&1
         echo
         
-        echo "Stopping MONs..."
-        for i in $MONs; do
+        echo ".. stop MONs"
+        for mon in $MONs; do
             echo -e "\tissdm-$i"
-            ssh issdm-$i "  sudo stop ceph-mon id=issdm-$i"
+            ssh $mon "sudo stop ceph-mon id=issdm-$i"
         done
         echo
         
-        echo "Checking for straggler processes..."
-        for i in $ALL; do
-            echo -e "\tissdm-$i"
-            ssh issdm-$i "  sudo stop ceph-all; \
-                            sudo rm -r $OUT/*; \
-                            sudo rm -r --one-file-system /var/lib/ceph/* /var/log/ceph/* /etc/ceph/*; \
-                            sudo rm -r --one-file-system /mnt/ssd1/msevilla/* /mnt/ssd2/msevilla/* /mnt/ssd3/msevilla/*; \
-                            sudo rm -r --one-file-system /mnt/vol1/msevilla/* /mnt/vol2/msevilla/* /mnt/vol3/msevilla/*;" >> /dev/null 2>&1
-            ssh issdm-$i "  ps aux | grep ceph | grep \"fuse\|mds\|osd\|mon\" | grep -v \"grep\""
-        done 
-        echo
+        echo "... delete all run directories"
+        DELETE="sudo stop ceph-all"
+        DELETE="$DELETE; sudo rm -r $OUT/*"
+        DELETE="$DELETE; sudo rm -r --one-file-system /var/lib/ceph/* /var/log/ceph/* /etc/ceph/*"
+        DELETE="$DELETE; sudo rm -r --one-file-system /mnt/ssd1/msevilla/* /mnt/ssd2/msevilla/* /mnt/ssd3/msevilla/*"
+        DELETE="$DELETE; sudo rm -r --one-file-system /mnt/vol1/msevilla/* /mnt/vol2/msevilla/* /mnt/vol3/msevilla/*"
+        $SCRIPTS/ssh-all.sh ALL $CONFIG "$DELETE" blocking >> /dev/null 2>&1
+
+        echo "... checking that everything died"
+        CHECK="ps aux | grep ceph | grep \"fuse\|mds\|osd\|mon\" | grep -v \"grep\""
     elif [ "$CMD" == "reset" ]; then
-        echo "Resetting the cluster (same configs)"
-        echo "PGs=$PGs"
+        echo "... reset the cluster (same configs)"
+        echo "... PGs=$PGs"
         ceph mds set_max_mds 20; 
         ceph mds cluster_down; 
         for i in {0..20}; do
@@ -149,4 +129,4 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
 else
     echo -e "Unrecognized command: $CMD"
 fi
-
+echo  "DONE!"

@@ -40,15 +40,14 @@ for i in {0..2}; do
     
     TARGETS=""
     COUNT=0
-    for i in $CLIENTs; do
+    for j in $CLIENTs; do
         if [ $COUNT -eq 0 ]; then
-            TARGETS="$i"
+            TARGETS="$j"
         else
-            TARGETS="$TARGETS,$i"
+            TARGETS="$TARGETS,$j"
         fi
         COUNT=$(($COUNT+1))
     done
-    echo $TARGETS
     JOB="mpirun --mca btl_tcp_if_include eth1 --host $TARGETS /user/msevilla/programs/mdtest/mdtest -n 100000 -F -C -d /mnt/cephfs/shared"
     echo 
     echo "-----------------------------"
@@ -69,6 +68,5 @@ for i in {0..2}; do
     echo "--- RESET: $JOB"
     echo "-----------------------------"
     eval $JOB
-    rm -r $NFSOUT/run$i
     sleep 10
 done
