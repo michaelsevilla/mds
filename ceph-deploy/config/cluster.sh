@@ -5,8 +5,7 @@ MONs="issdm-3"
 MDSs="issdm-15"
 OSDs="issdm-0 issdm-7 issdm-11 issdm-21 issdm-34 issdm-40"
 DEAD="issdm-46 issdm-36 issdm-25"
-#CLIENTs="issdm-0 issdm-7 issdm-11 issdm-21 issdm-34 issdm-40"
-CLIENTs="issdm-0 issdm-7"
+CLIENTs="issdm-0 issdm-7 issdm-11"
 
 # Sample rate
 INTERVAL=10
@@ -17,4 +16,4 @@ OSDSOCKET="/var/run/ceph/ceph-osd*.asok"
 
 # Log files (used collect.sh)
 OUT="/mnt/vol2/msevilla/ceph-logs"
-NFSOUT="/user/msevilla/code/pdsw15/cluster/2client-runs"
+NFSOUT="/user/msevilla/code/pdsw15/cluster/3client-runs"
