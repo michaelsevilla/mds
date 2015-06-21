@@ -28,10 +28,6 @@ echo "Deploy directory:  $DEPLOYDIR"
 echo "Scripts directory: $SCRIPTS"
 echo "==================="
 
-mkdir -p    $NFSOUT/osd/perf $NFSOUT/osd/cpu \
-            $NFSOUT/mds/perf $NFSOUT/mds/cpu $NFSOUT/mds/lttng_traces \
-            $NFSOUT/mon $NFSOUT/config $NFSOUT/client $NFSOUT/dump-daemons > /dev/null 2>&1
-
 if [ "$cmd" == "teardown" ]; then
     echo -n "I'm about to tear down the Ceph cluster, are you sure [y/n]? "
     read teardown
@@ -39,6 +35,8 @@ if [ "$cmd" == "teardown" ]; then
         exit
     fi
 fi
+
+mkdir $NFSOUT >> /dev/null 2>&1
 
 if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; then
     echo "... umounting..."
@@ -51,7 +49,7 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
     COPY="sudo chown -R msevilla:msevilla $OUT"
     COPY="$COPY; cp -r $OUT/* $NFSOUT/"
     COPY="$COPY; sudo cp -r /var/log/ceph/ $NFSOUT/varlogceph/"
-    $SCRIPTS/ssh-all.sh MDSs $CONFIG "$COPY" blocking
+    $SCRIPTS/ssh-all.sh MDSs $CONFIG "$COPY; cp -r $OUT/lttng_traces $NFSOUT/lttng_traces" blocking
     $SCRIPTS/ssh-all.sh OSDs $CONFIG "$COPY" blocking
     $SCRIPTS/ssh-all.sh CLIENTs $CONFIG "$COPY" blocking
     COPY="$COPY; sudo cp /etc/ceph/ceph.conf $NFSOUT/config/ceph.conf"
@@ -64,12 +62,8 @@ if [ "$CMD" == "teardown" ] || [ "$CMD" == "stop" ] || [ "$CMD" == "reset" ]; th
     $SCRIPTS/ssh-all.sh ALL $CONFIG "$KILL" blocking >> /dev/null 2>&1
 
     echo "... tarring up the logs"    
-    DIR=`dirname $NFSOUT`
-    FNAME=`basename $NFSOUT`
-    cd $DIR
-    tar czvf $FNAME.tar.gz $FNAME >> /dev/null 2>&1
+    tar czvf $NFSOUT.tar.gz $NFSOUT >> /dev/null 2>&1
     sudo chown -R msevilla:msevilla $NFSOUT.tar.gz $NFSOUT
-    cd -
 
     if [ "$CMD" == "teardown" ]; then
         echo -e "... cleanup working dir: $DIR"
